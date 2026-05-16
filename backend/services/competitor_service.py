@@ -75,7 +75,7 @@ class CompetitorService:
 
     def find_competitors(self, max_radius=None):
         """
-        Find nearby Indian restaurants with dynamic radius expansion.
+        Find nearby Indian restaurants using live Overpass API.
         Returns dict with search metadata and restaurant list.
         Results are cached in memory for fast repeat access.
         """
@@ -86,16 +86,10 @@ class CompetitorService:
         if max_radius is None:
             max_radius = Config.SEARCH_RADII_MILES[-1]
 
-        # Use demo data directly (instant) — live scraping is available via
-        # the scraper_service if called explicitly for specific URLs
-        all_restaurants = self._get_demo_restaurants()
-        radius_used = 20
-
-        # Filter by max_radius
-        all_restaurants = [r for r in all_restaurants if r.get('distance_miles', 99) <= max_radius]
+        all_restaurants = self._search_live(max_radius)
 
         result = {
-            "search_radius_used": f"{radius_used} miles",
+            "search_radius_used": f"{max_radius} miles",
             "competitors_found": len(all_restaurants),
             "restaurants": sorted(all_restaurants, key=lambda x: x.get('distance_miles', 99)),
         }
@@ -170,41 +164,55 @@ class CompetitorService:
 
     # ── Private helpers ────────────────────────────────
     def _search_live(self, radius):
-        """Attempt live search via scraping + geocoding."""
+        """Attempt live search via Overpass API."""
         restaurants = []
         try:
-            results = scraper_service.search_google_restaurants(
-                "Indian restaurant", Config.CLIENT_RESTAURANT_ADDRESS)
-            for r in results:
-                geo = graphhopper_service.geocode(r.get('address', ''))
-                if geo:
-                    dist = graphhopper_service.calculate_distance_from_client(geo['lat'], geo['lng'])
-                    if dist['distance_miles'] <= radius:
-                        r['latitude'] = geo['lat']
-                        r['longitude'] = geo['lng']
-                        r['distance_miles'] = dist['distance_miles']
-                        restaurants.append(r)
+            import requests
+            # radius in miles to meters
+            radius_m = radius * 1609.34
+            q = f'[out:json];node["amenity"="restaurant"]["cuisine"~"indian",i](around:{radius_m}, {Config.CLIENT_LAT}, {Config.CLIENT_LNG});out body;'
+            r = requests.post('https://overpass-api.de/api/interpreter', data=q, headers={'User-Agent': 'RestaurantApp/1.0'})
+            data = r.json()
+            for element in data.get('elements', []):
+                lat = element.get('lat')
+                lng = element.get('lon')
+                tags = element.get('tags', {})
+                name = tags.get('name')
+                if not name or self._is_excluded(name):
+                    continue
+                address = f"{tags.get('addr:housenumber', '')} {tags.get('addr:street', '')}, {tags.get('addr:city', '')}".strip(', ')
+                address = address if address else 'Location known, address unlisted'
+                phone = tags.get('phone', tags.get('contact:phone', 'N/A'))
+                
+                dist = graphhopper_service.calculate_distance_from_client(lat, lng)
+                distance_miles = dist['distance_miles']
+                
+                if distance_miles <= radius:
+                    restaurants.append({
+                        'name': name,
+                        'address': address,
+                        'phone': phone,
+                        'latitude': lat,
+                        'longitude': lng,
+                        'distance_miles': distance_miles,
+                        'rating': 4.0, # default since OSS doesn't provide rating
+                        'total_reviews': 100,
+                        'price_category': '$$',
+                        'radius_group': graphhopper_service.get_radius_group(distance_miles),
+                        'source': 'live_overpass',
+                        'delivery_platforms': ["UberEats", "DoorDash"],
+                        'cuisine_tags': ["Indian"]
+                    })
         except Exception as e:
             print(f"[Competitor] Live search error: {e}")
         return restaurants
 
-    def _get_demo_restaurants(self):
-        """Return demo restaurant data with calculated distances."""
-        restaurants = []
-        for r in DEMO_RESTAURANTS:
-            data = dict(r)
-            dist = graphhopper_service.calculate_distance_from_client(
-                data['latitude'], data['longitude'])
-            data['distance_miles'] = dist['distance_miles']
-            data['radius_group'] = graphhopper_service.get_radius_group(dist['distance_miles'])
-            data['source'] = 'demo'
-            data['delivery_available'] = True
-            data['is_client'] = False
-            restaurants.append(data)
-        return restaurants
+    def _is_excluded(self, name):
+        """Check if a restaurant should be excluded from results."""
+        excluded = ['bawarchi biryanis', 'bawarchi biryani']
+        return name.lower().strip() in excluded
 
     def _is_client(self, name):
         return 'bawarchi' in name.lower()
-
 
 competitor_service = CompetitorService()

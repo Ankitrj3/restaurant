@@ -1,14 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="AI-powered restaurant competitor intelligence platform for Bawarchi Biryanis — menu analysis, pricing optimization, and sales growth engine.">
+  <meta name="description"
+    content="AI-powered restaurant competitor intelligence platform for Bawarchi Biryanis — menu analysis, pricing optimization, and sales growth engine.">
   <title>Restaurant Intelligence | Bawarchi Biryanis</title>
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Sora:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+
+  <!-- Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -16,22 +23,27 @@
   <!-- Styles -->
   <link rel="stylesheet" href="/css/styles.css">
 </head>
+
 <body>
 
   <!-- ═══════════ NAVBAR ═══════════ -->
   <nav class="navbar" id="navbar">
     <div class="navbar-brand">
-      <div class="logo-icon">🍛</div>
+      <div class="logo-icon"><i class="fa-solid fa-bowl-food" aria-hidden="true"></i></div>
       <div>
         <h1>Competitor Intelligence</h1>
         <span>Bawarchi Biryanis · Fort Collins, CO</span>
       </div>
     </div>
     <div class="nav-tabs" id="nav-tabs">
-      <button class="nav-tab active" data-view="dashboard">🏠 Dashboard</button>
-      <button class="nav-tab" data-view="market">📈 Market Analysis</button>
-      <button class="nav-tab" data-view="pricing">💰 Pricing</button>
-      <button class="nav-tab" data-view="recommendations">💡 AI Recommendations</button>
+      <button class="nav-tab active" data-view="dashboard"><i class="fa-solid fa-house"
+          aria-hidden="true"></i><span>Dashboard</span></button>
+      <button class="nav-tab" data-view="market"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Market
+          Analysis</span></button>
+      <button class="nav-tab" data-view="pricing"><i class="fa-solid fa-tags"
+          aria-hidden="true"></i><span>Pricing</span></button>
+      <button class="nav-tab" data-view="recommendations"><i class="fa-solid fa-lightbulb"
+          aria-hidden="true"></i><span>AI Recommendations</span></button>
     </div>
   </nav>
 
@@ -70,7 +82,7 @@
 
       <!-- Section Title -->
       <div class="section-title">
-        <span class="icon">🏪</span>
+        <span class="icon"><i class="fa-solid fa-store" aria-hidden="true"></i></span>
         Nearby Indian Restaurants
       </div>
 
@@ -85,7 +97,8 @@
 
     <!-- ── MARKET ANALYSIS VIEW ── -->
     <div class="view" id="view-market">
-      <div class="section-title"><span class="icon">📈</span> Market Intelligence</div>
+      <div class="section-title"><span class="icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span>
+        Market Intelligence</div>
       <div id="market-content">
         <div class="loading-container">
           <div class="spinner"></div>
@@ -96,7 +109,8 @@
 
     <!-- ── PRICING VIEW ── -->
     <div class="view" id="view-pricing">
-      <div class="section-title"><span class="icon">💰</span> Pricing Optimization</div>
+      <div class="section-title"><span class="icon"><i class="fa-solid fa-tag" aria-hidden="true"></i></span> Pricing
+        Optimization</div>
       <div id="pricing-content">
         <div class="loading-container">
           <div class="spinner"></div>
@@ -107,7 +121,8 @@
 
     <!-- ── RECOMMENDATIONS VIEW ── -->
     <div class="view" id="view-recommendations">
-      <div class="section-title"><span class="icon">💡</span> AI-Powered Recommendations</div>
+      <div class="section-title"><span class="icon"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i></span>
+        AI-Powered Recommendations</div>
       <div id="recs-content">
         <div class="loading-container">
           <div class="spinner"></div>
@@ -135,4 +150,5 @@
   <script src="/js/app.js"></script>
 
 </body>
+
 </html>
