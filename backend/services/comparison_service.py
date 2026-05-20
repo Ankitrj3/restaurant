@@ -4,77 +4,105 @@ restaurant and each competitor, with scoring and recommendations.
 """
 
 import json
+from services.gemini_service import gemini_service
 from services.claude_service import claude_service
+from services.cache_service import cache_service
 
 
 class ComparisonService:
     """One-to-one restaurant comparison engine."""
 
     def __init__(self):
-        self._comparison_cache = {}
-        self._market_cache = None
-        self._pricing_cache = None
+        pass
 
     def compare(self, client_data, competitor_data):
-        """
-        Run a full comparison between the client and one competitor.
-        Results are cached by competitor name.
-        """
-        cache_key = competitor_data.get('name', '')
-        if cache_key in self._comparison_cache:
-            return self._comparison_cache[cache_key]
+        """Run a full comparison following the Priority Chain."""
+        cache_key = f"compare_{competitor_data.get('name', 'unknown')}"
+        
+        # 1. Valid Cache
+        cached_comp = cache_service.get('comparison', cache_key)
+        if cached_comp: return cached_comp
 
-        # Try AI-powered comparison
-        if claude_service.is_available():
-            ai_result = claude_service.compare_restaurants(client_data, competitor_data)
+        # Priority 1: Gemini Live
+        if gemini_service.is_available():
+            ai_result = gemini_service.compare_restaurants(client_data, competitor_data)
             if ai_result and 'raw_response' not in ai_result:
-                self._comparison_cache[cache_key] = ai_result
+                cache_service.set('comparison', cache_key, ai_result)
                 return ai_result
+                
+        # Priority 2/3: Stale Cache Fallback
+        fallback_comp = cache_service.get_latest('comparison', cache_key)
+        if fallback_comp:
+            print(f"[Comparison] Restored comparison for {cache_key} from stale cache")
+            return fallback_comp
+            
+        # Priority 5: Claude AI Fallback Enrichment
+        if claude_service.is_available():
+            claude_result = claude_service.compare_restaurants(client_data, competitor_data)
+            if claude_result and 'raw_response' not in claude_result:
+                print(f"[Comparison] Used Claude fallback for {cache_key}")
+                return claude_result
 
-        # Algorithmic fallback
+        # Priority 6: Algorithmic fallback
         result = self._algorithmic_comparison(client_data, competitor_data)
-        self._comparison_cache[cache_key] = result
         return result
 
     def generate_market_analysis(self, client_data, all_competitors):
-        """Generate market-wide analysis across all competitors (cached)."""
-        if self._market_cache is not None:
-            return self._market_cache
+        """Generate market-wide analysis following Priority Chain."""
+        cache_key = "market_analysis"
+        
+        cached_comp = cache_service.get('comparison', cache_key)
+        if cached_comp: return cached_comp
+
+        if gemini_service.is_available():
+            result = gemini_service.compare_restaurants(
+                client_data, {'name': 'Market', 'menu': [m for c in all_competitors[:5] for m in c.get('menu', [])[:5]]})
+            if result and 'raw_response' not in result:
+                cache_service.set('comparison', cache_key, result)
+                return result
+                
+        fallback_comp = cache_service.get_latest('comparison', cache_key)
+        if fallback_comp: return fallback_comp
 
         if claude_service.is_available():
             result = claude_service.generate_sales_recommendations(
-                client_data, all_competitors[:5])
-            if result and 'raw_response' not in result:
-                self._market_cache = result
-                return result
-        result = self._algorithmic_market_analysis(client_data, all_competitors)
-        self._market_cache = result
-        return result
+                client_data, {'name': 'Market', 'menu': [m for c in all_competitors[:5] for m in c.get('menu', [])[:5]]})
+            if result and 'raw_response' not in result: return result
+
+        return self._algorithmic_market_analysis(client_data, all_competitors)
 
     def generate_pricing_analysis(self, client_menu, competitor_menus):
-        """Generate pricing optimization analysis (cached)."""
-        if self._pricing_cache is not None:
-            return self._pricing_cache
+        """Generate pricing optimization analysis following Priority Chain."""
+        cache_key = "pricing_analysis"
+        
+        cached_comp = cache_service.get('comparison', cache_key)
+        if cached_comp: return cached_comp
+
+        if gemini_service.is_available():
+            result = gemini_service.generate_pricing_recommendations(
+                {'name': 'Pricing', 'menu': client_menu[:10]}, {'name': 'Competitors', 'menu': [item for m in competitor_menus[:3] for item in m[:5]]})
+            if result and 'raw_response' not in result:
+                cache_service.set('comparison', cache_key, result)
+                return result
+                
+        fallback_comp = cache_service.get_latest('comparison', cache_key)
+        if fallback_comp: return fallback_comp
 
         if claude_service.is_available():
-            market_data = {"competitor_menus": competitor_menus[:5]}
             result = claude_service.generate_pricing_recommendations(
-                client_menu, market_data)
-            if result and 'raw_response' not in result:
-                self._pricing_cache = result
-                return result
-        result = self._algorithmic_pricing_analysis(client_menu, competitor_menus)
-        self._pricing_cache = result
-        return result
+                {'name': 'Pricing', 'menu': client_menu[:10]}, {'name': 'Competitors', 'menu': [item for m in competitor_menus[:3] for item in m[:5]]})
+            if result and 'raw_response' not in result: return result
+
+        return self._algorithmic_pricing_analysis(client_menu, competitor_menus)
 
     # ── Algorithmic fallback methods ────────────────────
 
     def _algorithmic_comparison(self, client_data, competitor_data):
         """Generate comparison using algorithmic analysis."""
-        client_menu = client_data.get('menu', [])
-        comp_menu = competitor_data.get('menu', [])
-        client_offers = client_data.get('offers', [])
-        comp_offers = competitor_data.get('offers', [])
+        client_menu = client_data.get('menu') or []
+        comp_menu = competitor_data.get('menu') or []
+        client_offers = client_data.get('offers') or []
+        comp_offers = competitor_data.get('offers') or []
 
         price_comp = self._compare_prices(client_menu, comp_menu)
         offer_comp = self._compare_offers(client_offers, comp_offers)

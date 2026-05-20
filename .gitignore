@@ -39,6 +39,8 @@ node_modules/
 dist/
 build/
 .npm/
+*.txt
+*.md
 
 # Docker
 docker-compose.override.yml

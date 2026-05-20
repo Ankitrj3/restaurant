@@ -5,8 +5,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description"
-    content="AI-powered restaurant competitor intelligence platform for Bawarchi Biryanis — menu analysis, pricing optimization, and sales growth engine.">
-  <title>Restaurant Intelligence | Bawarchi Biryanis</title>
+    content="Multi-platform restaurant analytics and comparison dashboard for Bawarchi Indian Cuisine — in-store, Uber Eats, DoorDash, Grubhub pricing, delivery fees, and category analytics.">
+  <title>Restaurant Analytics | Bawarchi Indian Cuisine</title>
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,28 +31,42 @@
     <div class="navbar-brand">
       <div class="logo-icon"><i class="fa-solid fa-bowl-food" aria-hidden="true"></i></div>
       <div>
-        <h1>Competitor Intelligence</h1>
-        <span>Bawarchi Biryanis · Fort Collins, CO</span>
+        <h1>Multi-Platform Analytics</h1>
+        <span>Bawarchi Indian Cuisine · Leander, TX</span>
       </div>
     </div>
-    <div class="nav-tabs" id="nav-tabs">
-      <button class="nav-tab active" data-view="dashboard"><i class="fa-solid fa-house"
-          aria-hidden="true"></i><span>Dashboard</span></button>
-      <button class="nav-tab" data-view="market"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Market
-          Analysis</span></button>
-      <button class="nav-tab" data-view="pricing"><i class="fa-solid fa-tags"
-          aria-hidden="true"></i><span>Pricing</span></button>
-      <button class="nav-tab" data-view="recommendations"><i class="fa-solid fa-lightbulb"
-          aria-hidden="true"></i><span>AI Recommendations</span></button>
+    <div class="nav-actions">
+      <div class="global-search">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="text" id="global-search-input" placeholder="Search menu items..." autocomplete="off">
+      </div>
+      <button class="btn-icon" id="btn-refresh" title="Refresh Data">
+        <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
+      </button>
+      <button class="btn-icon" id="btn-settings" title="Settings">
+        <i class="fa-solid fa-gear" aria-hidden="true"></i>
+      </button>
     </div>
   </nav>
+
+  <!-- ═══════════ TAB BAR ═══════════ -->
+  <div class="tab-bar" id="tab-bar">
+    <button class="nav-tab active" data-view="dashboard"><i class="fa-solid fa-house" aria-hidden="true"></i><span>Dashboard</span></button>
+    <button class="nav-tab" data-view="instore"><i class="fa-solid fa-store" aria-hidden="true"></i><span>In-Store</span></button>
+    <button class="nav-tab" data-view="ubereats"><i class="fa-solid fa-motorcycle" aria-hidden="true"></i><span>Uber Eats</span></button>
+    <button class="nav-tab" data-view="doordash"><i class="fa-solid fa-truck-fast" aria-hidden="true"></i><span>DoorDash</span></button>
+    <button class="nav-tab" data-view="grubhub"><i class="fa-solid fa-utensils" aria-hidden="true"></i><span>Grubhub</span></button>
+    <button class="nav-tab" data-view="delivery"><i class="fa-solid fa-bicycle" aria-hidden="true"></i><span>Delivery</span></button>
+    <button class="nav-tab" data-view="categories"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>Categories</span></button>
+    <button class="nav-tab" data-view="free-delivery"><i class="fa-solid fa-gift" aria-hidden="true"></i><span>Free Delivery</span></button>
+    <button class="nav-tab" data-view="recommendations"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i><span>AI Recs</span></button>
+  </div>
 
   <!-- ═══════════ MAIN CONTENT ═══════════ -->
   <div class="app-container">
 
     <!-- ── DASHBOARD VIEW ── -->
     <div class="view active" id="view-dashboard">
-
       <!-- Stats Bar -->
       <div class="stats-bar">
         <div class="stat-card">
@@ -95,39 +109,152 @@
       </div>
     </div>
 
-    <!-- ── MARKET ANALYSIS VIEW ── -->
-    <div class="view" id="view-market">
-      <div class="section-title"><span class="icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span>
-        Market Intelligence</div>
-      <div id="market-content">
-        <div class="loading-container">
-          <div class="spinner"></div>
-          <div class="loading-text">Loading market analysis...</div>
+    <!-- ── IN-STORE COMPARISON VIEW ── -->
+    <div class="view" id="view-instore">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-store" aria-hidden="true"></i></span> In-Store Price Comparison</div>
+        <div class="view-controls">
+          <select id="instore-competitor-select" class="control-select"><option value="">All Competitors</option></select>
+          <select id="instore-sort-select" class="control-select">
+            <option value="name">Sort: Name</option>
+            <option value="price-low">Lowest Price</option>
+            <option value="price-high">Highest Price</option>
+            <option value="diff">Highest Difference</option>
+            <option value="category">Category</option>
+          </select>
+          <input type="text" id="instore-search" class="control-search" placeholder="Search items...">
+          <button class="btn-export" onclick="PlatformComparison.export('instore')"><i class="fa-solid fa-download" aria-hidden="true"></i> Export</button>
         </div>
+      </div>
+      <div id="instore-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading in-store comparison...</div></div>
       </div>
     </div>
 
-    <!-- ── PRICING VIEW ── -->
-    <div class="view" id="view-pricing">
-      <div class="section-title"><span class="icon"><i class="fa-solid fa-tag" aria-hidden="true"></i></span> Pricing
-        Optimization</div>
-      <div id="pricing-content">
-        <div class="loading-container">
-          <div class="spinner"></div>
-          <div class="loading-text">Loading pricing analysis...</div>
+    <!-- ── UBER EATS COMPARISON VIEW ── -->
+    <div class="view" id="view-ubereats">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-motorcycle" aria-hidden="true"></i></span> Uber Eats Price Comparison</div>
+        <div class="view-controls">
+          <select id="ubereats-competitor-select" class="control-select"><option value="">All Competitors</option></select>
+          <select id="ubereats-sort-select" class="control-select">
+            <option value="name">Sort: Name</option>
+            <option value="price-low">Lowest Price</option>
+            <option value="markup">Highest Markup</option>
+            <option value="diff">Highest Difference</option>
+            <option value="category">Category</option>
+          </select>
+          <input type="text" id="ubereats-search" class="control-search" placeholder="Search items...">
+          <button class="btn-export" onclick="PlatformComparison.export('ubereats')"><i class="fa-solid fa-download" aria-hidden="true"></i> Export</button>
         </div>
       </div>
+      <div id="ubereats-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading Uber Eats comparison...</div></div>
+      </div>
     </div>
+
+    <!-- ── DOORDASH COMPARISON VIEW ── -->
+    <div class="view" id="view-doordash">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-truck-fast" aria-hidden="true"></i></span> DoorDash Price Comparison</div>
+        <div class="view-controls">
+          <select id="doordash-competitor-select" class="control-select"><option value="">All Competitors</option></select>
+          <select id="doordash-sort-select" class="control-select">
+            <option value="name">Sort: Name</option>
+            <option value="price-low">Lowest Price</option>
+            <option value="markup">Highest Markup</option>
+            <option value="diff">Highest Difference</option>
+            <option value="category">Category</option>
+          </select>
+          <input type="text" id="doordash-search" class="control-search" placeholder="Search items...">
+          <button class="btn-export" onclick="PlatformComparison.export('doordash')"><i class="fa-solid fa-download" aria-hidden="true"></i> Export</button>
+        </div>
+      </div>
+      <div id="doordash-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading DoorDash comparison...</div></div>
+      </div>
+    </div>
+
+    <!-- ── GRUBHUB COMPARISON VIEW ── -->
+    <div class="view" id="view-grubhub">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-utensils" aria-hidden="true"></i></span> Grubhub Price Comparison</div>
+        <div class="view-controls">
+          <select id="grubhub-competitor-select" class="control-select"><option value="">All Competitors</option></select>
+          <select id="grubhub-sort-select" class="control-select">
+            <option value="name">Sort: Name</option>
+            <option value="price-low">Lowest Price</option>
+            <option value="markup">Highest Markup</option>
+            <option value="diff">Highest Difference</option>
+            <option value="category">Category</option>
+          </select>
+          <input type="text" id="grubhub-search" class="control-search" placeholder="Search items...">
+          <button class="btn-export" onclick="PlatformComparison.export('grubhub')"><i class="fa-solid fa-download" aria-hidden="true"></i> Export</button>
+        </div>
+      </div>
+      <div id="grubhub-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading Grubhub comparison...</div></div>
+      </div>
+    </div>
+
+    <!-- ── DELIVERY COMPARISON VIEW ── -->
+    <div class="view" id="view-delivery">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-bicycle" aria-hidden="true"></i></span> Delivery Fee Comparison</div>
+        <div class="view-controls">
+          <button class="btn-export" onclick="DeliveryComparison.export()"><i class="fa-solid fa-download" aria-hidden="true"></i> Export</button>
+        </div>
+      </div>
+      <div id="delivery-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading delivery comparison...</div></div>
+      </div>
+    </div>
+
+    <!-- ── CATEGORY ANALYTICS VIEW ── -->
+    <div class="view" id="view-categories">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></span> Category Analytics</div>
+        <div class="view-controls">
+          <select id="category-platform-select" class="control-select">
+            <option value="instore">In-Store</option>
+            <option value="ubereats">Uber Eats</option>
+            <option value="doordash">DoorDash</option>
+            <option value="grubhub">Grubhub</option>
+          </select>
+          <select id="category-sort-select" class="control-select">
+            <option value="name">Sort: Name</option>
+            <option value="cheapest">Cheapest First</option>
+            <option value="markup">Highest Markup</option>
+          </select>
+        </div>
+      </div>
+      <div class="category-tabs" id="category-tabs"></div>
+      <div id="categories-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading categories...</div></div>
+      </div>
+    </div>
+
+    <!-- ── FREE DELIVERY COMPARISON VIEW ── -->
+    <div class="view" id="view-free-delivery">
+      <div class="view-header">
+        <div class="section-title"><span class="icon"><i class="fa-solid fa-gift" aria-hidden="true"></i></span> Free Delivery Thresholds</div>
+        <div class="view-controls">
+          <button class="btn-export" onclick="DeliveryComparison.exportFreeDelivery()"><i class="fa-solid fa-download" aria-hidden="true"></i> Export</button>
+        </div>
+      </div>
+      <div id="free-delivery-content">
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading free delivery data...</div></div>
+      </div>
+    </div>
+
+    <!-- ── MARKET ANALYSIS & PRICING VIEWS REMOVED ── -->
 
     <!-- ── RECOMMENDATIONS VIEW ── -->
     <div class="view" id="view-recommendations">
       <div class="section-title"><span class="icon"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i></span>
         AI-Powered Recommendations</div>
       <div id="recs-content">
-        <div class="loading-container">
-          <div class="spinner"></div>
-          <div class="loading-text">Loading recommendations...</div>
-        </div>
+        <div class="loading-container"><div class="spinner"></div><div class="loading-text">Loading recommendations...</div></div>
       </div>
     </div>
 
@@ -139,6 +266,15 @@
     </div>
   </div>
 
+  <!-- ═══════════ SETTINGS MODAL ═══════════ -->
+  <div class="modal-overlay" id="settings-overlay">
+    <div class="settings-panel" id="settings-content">
+      <button class="close-btn" onclick="AdminConfig.close()" title="Close">✕</button>
+      <h2><i class="fa-solid fa-gear icon-inline" aria-hidden="true"></i> Platform Settings</h2>
+      <div id="admin-config-form"></div>
+    </div>
+  </div>
+
   <!-- ═══════════ TOAST CONTAINER ═══════════ -->
   <div class="toast-container" id="toast-container"></div>
 
@@ -147,6 +283,10 @@
   <script src="/js/api.js"></script>
   <script src="/js/charts.js"></script>
   <script src="/js/comparison.js"></script>
+  <script src="/js/platform-comparison.js"></script>
+  <script src="/js/delivery-comparison.js"></script>
+  <script src="/js/category-analytics.js"></script>
+  <script src="/js/admin-config.js"></script>
   <script src="/js/app.js"></script>
 
 </body>

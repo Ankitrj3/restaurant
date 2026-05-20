@@ -4,9 +4,11 @@ Provides connection pooling and CRUD operations for all entities.
 """
 
 import json
+import hashlib
 import psycopg2
 import psycopg2.extras
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from config import Config
 
 
@@ -213,6 +215,143 @@ class Database:
             """, comparison_data)
             result = cur.fetchone()
             return result['id'] if result else None
+
+    # --------------------------------------------------
+    # Platform Menu Items CRUD
+    # --------------------------------------------------
+    def save_platform_menu_items(self, restaurant_name, platform, items):
+        """Bulk-insert platform-specific menu items for a restaurant."""
+        with self.cursor() as cur:
+            if cur is None:
+                return
+            cur.execute(
+                "DELETE FROM platform_menu_items WHERE restaurant_name = %s AND platform = %s",
+                (restaurant_name, platform)
+            )
+            for item in items:
+                cur.execute("""
+                    INSERT INTO platform_menu_items (
+                        restaurant_name, item_name, item_name_normalized,
+                        category, platform, price, is_available,
+                        markup_over_instore, description, is_veg, source
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                """, (
+                    restaurant_name,
+                    item.get('item_name', ''),
+                    item.get('item_name_normalized', ''),
+                    item.get('category'),
+                    platform,
+                    item.get('price'),
+                    item.get('is_available', True),
+                    item.get('markup_over_instore'),
+                    item.get('description'),
+                    item.get('is_veg'),
+                    item.get('source', 'scraper'),
+                ))
+
+    def get_platform_menu_items(self, restaurant_name, platform=None, category=None):
+        """Get platform menu items with optional filters."""
+        with self.cursor() as cur:
+            if cur is None:
+                return []
+            query = "SELECT * FROM platform_menu_items WHERE restaurant_name = %s"
+            params = [restaurant_name]
+            if platform:
+                query += " AND platform = %s"
+                params.append(platform)
+            if category:
+                query += " AND category = %s"
+                params.append(category)
+            query += " ORDER BY category, item_name"
+            cur.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
+
+    # --------------------------------------------------
+    # Delivery Fees CRUD
+    # --------------------------------------------------
+    def save_delivery_fees(self, restaurant_name, platform, fee_data):
+        """Save or update delivery fee snapshot."""
+        with self.cursor() as cur:
+            if cur is None:
+                return
+            cur.execute(
+                "DELETE FROM delivery_fees WHERE restaurant_name = %s AND platform = %s",
+                (restaurant_name, platform)
+            )
+            cur.execute("""
+                INSERT INTO delivery_fees (
+                    restaurant_name, platform, delivery_fee, service_fee,
+                    surge_fee, tax_estimate, free_delivery_threshold,
+                    min_order_amount, estimated_delivery_time
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                restaurant_name, platform,
+                fee_data.get('delivery_fee'),
+                fee_data.get('service_fee'),
+                fee_data.get('surge_fee'),
+                fee_data.get('tax_estimate'),
+                fee_data.get('free_delivery_threshold'),
+                fee_data.get('min_order_amount'),
+                fee_data.get('estimated_delivery_time'),
+            ))
+
+    def get_delivery_fees(self, restaurant_name=None, platform=None):
+        """Get delivery fees with optional filters."""
+        with self.cursor() as cur:
+            if cur is None:
+                return []
+            query = "SELECT * FROM delivery_fees WHERE 1=1"
+            params = []
+            if restaurant_name:
+                query += " AND restaurant_name = %s"
+                params.append(restaurant_name)
+            if platform:
+                query += " AND platform = %s"
+                params.append(platform)
+            query += " ORDER BY restaurant_name, platform"
+            cur.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
+
+    # --------------------------------------------------
+    # Comparison Cache CRUD
+    # --------------------------------------------------
+    def save_comparison_cache(self, comparison_type, params_hash, data, ttl_seconds=3600):
+        """Save comparison result to cache with TTL."""
+        with self.cursor() as cur:
+            if cur is None:
+                return
+            expires = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+            cur.execute("""
+                INSERT INTO comparison_cache (comparison_type, params_hash, result_data, expires_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (comparison_type, params_hash) DO UPDATE
+                SET result_data = EXCLUDED.result_data,
+                    created_at = NOW(),
+                    expires_at = EXCLUDED.expires_at
+            """, (comparison_type, params_hash, json.dumps(data), expires))
+
+    def get_comparison_cache(self, comparison_type, params_hash):
+        """Get cached comparison if not expired."""
+        with self.cursor() as cur:
+            if cur is None:
+                return None
+            cur.execute("""
+                SELECT result_data FROM comparison_cache
+                WHERE comparison_type = %s AND params_hash = %s AND expires_at > NOW()
+            """, (comparison_type, params_hash))
+            row = cur.fetchone()
+            if row:
+                data = row['result_data']
+                return data if isinstance(data, dict) else json.loads(data)
+            return None
+
+    @staticmethod
+    def make_cache_key(*args):
+        """Generate a deterministic hash from arguments for cache lookup."""
+        raw = json.dumps(args, sort_keys=True, default=str)
+        return hashlib.md5(raw.encode()).hexdigest()
 
     def close(self):
         """Close the database connection."""

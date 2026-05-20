@@ -38,34 +38,7 @@ def compare_restaurant(restaurant_idx):
     return jsonify(result)
 
 
-@comparison_bp.route('/api/analysis/market', methods=['GET'])
-def market_analysis():
-    """Generate market-wide analysis."""
-    data = competitor_service.find_competitors()
-    client_data = {
-        **competitor_service.client_restaurant,
-        'menu': competitor_service.get_client_menu(),
-        'offers': competitor_service.get_client_offers(),
-    }
-    competitors = []
-    for r in data['restaurants']:
-        r['menu'] = competitor_service.get_restaurant_menu(r)
-        r['offers'] = competitor_service.get_restaurant_offers(r)
-        competitors.append(r)
 
-    result = comparison_service.generate_market_analysis(client_data, competitors)
-    return jsonify(result)
-
-
-@comparison_bp.route('/api/analysis/pricing', methods=['GET'])
-def pricing_analysis():
-    """Generate pricing optimization analysis."""
-    data = competitor_service.find_competitors()
-    client_menu = competitor_service.get_client_menu()
-    comp_menus = [competitor_service.get_restaurant_menu(r) for r in data['restaurants']]
-
-    result = comparison_service.generate_pricing_analysis(client_menu, comp_menus)
-    return jsonify(result)
 
 
 @comparison_bp.route('/api/analysis/recommendations', methods=['GET'])

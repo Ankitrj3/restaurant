@@ -19,6 +19,7 @@ class GraphHopperService:
         self.client_lat = Config.CLIENT_LAT
         self.client_lng = Config.CLIENT_LNG
         self.session = requests.Session()
+        self.session.verify = False
         self.session.headers.update({'Accept': 'application/json'})
 
     def geocode(self, address):

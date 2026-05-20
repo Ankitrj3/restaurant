@@ -9,11 +9,17 @@ const App = {
     activeView: "dashboard",
     activeRadius: "all",
     marketCharts: {},
+    loaded: {},
   },
 
   async init() {
     this.bindNavigation();
     this.bindOverlay();
+    this.bindGlobalSearch();
+    this.bindRefresh();
+    this.bindSettings();
+    PlatformComparison.bindControls();
+    CategoryAnalytics.bindControls();
     await this.loadDashboard();
   },
 
@@ -21,9 +27,7 @@ const App = {
   bindNavigation() {
     document.querySelectorAll(".nav-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
-        document
-          .querySelectorAll(".nav-tab")
-          .forEach((t) => t.classList.remove("active"));
+        document.querySelectorAll(".nav-tab").forEach((t) => t.classList.remove("active"));
         tab.classList.add("active");
         const view = tab.dataset.view;
         this.switchView(view);
@@ -38,30 +42,96 @@ const App = {
         if (e.target === overlay) Comparison.close();
       });
     }
+    const settingsOverlay = document.getElementById("settings-overlay");
+    if (settingsOverlay) {
+      settingsOverlay.addEventListener("click", (e) => {
+        if (e.target === settingsOverlay) AdminConfig.close();
+      });
+    }
+  },
+
+  bindGlobalSearch() {
+    const input = document.getElementById("global-search-input");
+    if (input) {
+      input.addEventListener("input", Utils.debounce((e) => {
+        const term = e.target.value.trim();
+        if (term && this.state.activeView === "dashboard") {
+          const filtered = this.state.restaurants.filter((r) =>
+            r.name.toLowerCase().includes(term.toLowerCase()) ||
+            (r.address || "").toLowerCase().includes(term.toLowerCase())
+          );
+          this.renderRestaurantGrid(filtered);
+        } else if (!term && this.state.activeView === "dashboard") {
+          this.renderRestaurantGrid(this.state.restaurants);
+        }
+      }, 250));
+    }
+  },
+
+  bindRefresh() {
+    const btn = document.getElementById("btn-refresh");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        this.state.loaded = {};
+        this.switchView(this.state.activeView);
+        Utils.showToast("Refreshing data...", "info");
+      });
+    }
+  },
+
+  bindSettings() {
+    const btn = document.getElementById("btn-settings");
+    if (btn) {
+      btn.addEventListener("click", () => AdminConfig.open());
+    }
   },
 
   switchView(view) {
-    document
-      .querySelectorAll(".view")
-      .forEach((v) => v.classList.remove("active"));
+    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     const el = document.getElementById(`view-${view}`);
     if (el) el.classList.add("active");
     this.state.activeView = view;
 
-    if (view === "market" && !this.state.marketLoaded)
-      this.loadMarketAnalysis();
-    if (view === "recommendations" && !this.state.recsLoaded)
+    // Lazy load views
+    if (view === "instore" && !this.state.loaded.instore) {
+      this.state.loaded.instore = true;
+      PlatformComparison.loadInstore();
+    }
+    if (view === "ubereats" && !this.state.loaded.ubereats) {
+      this.state.loaded.ubereats = true;
+      PlatformComparison.loadPlatform("ubereats");
+    }
+    if (view === "doordash" && !this.state.loaded.doordash) {
+      this.state.loaded.doordash = true;
+      PlatformComparison.loadPlatform("doordash");
+    }
+    if (view === "grubhub" && !this.state.loaded.grubhub) {
+      this.state.loaded.grubhub = true;
+      PlatformComparison.loadPlatform("grubhub");
+    }
+    if (view === "delivery" && !this.state.loaded.delivery) {
+      this.state.loaded.delivery = true;
+      DeliveryComparison.load();
+    }
+    if (view === "categories" && !this.state.loaded.categories) {
+      this.state.loaded.categories = true;
+      CategoryAnalytics.load();
+    }
+    if (view === "free-delivery" && !this.state.loaded.freeDelivery) {
+      this.state.loaded.freeDelivery = true;
+      DeliveryComparison.loadFreeDelivery();
+    }
+
+    if (view === "recommendations" && !this.state.loaded.recs) {
+      this.state.loaded.recs = true;
       this.loadRecommendations();
-    if (view === "pricing" && !this.state.pricingLoaded)
-      this.loadPricingAnalysis();
+    }
+
   },
 
   // ── Dashboard ───────────────────────────────
   async loadDashboard() {
-    Utils.showLoading(
-      "restaurant-grid",
-      "Searching nearby Indian restaurants...",
-    );
+    Utils.showLoading("restaurant-grid", "Searching nearby Indian restaurants...");
     try {
       const data = await API.searchRestaurants(20);
       this.state.searchData = data;
@@ -69,10 +139,8 @@ const App = {
       this.updateStats(data);
       this.renderRestaurantGrid(this.state.restaurants);
       this.renderFilterBar(this.state.restaurants);
-      Utils.showToast(
-        `Found ${data.competitors_found} competitor restaurants`,
-        "success",
-      );
+      PlatformComparison.populateCompetitorDropdowns(this.state.restaurants);
+      Utils.showToast(`Found ${data.competitors_found} competitor restaurants`, "success");
     } catch (e) {
       document.getElementById("restaurant-grid").innerHTML =
         '<p style="color:var(--danger);text-align:center;padding:40px;">Failed to load restaurants. Is the backend running?</p>';
@@ -81,52 +149,33 @@ const App = {
   },
 
   updateStats(data) {
-    document.getElementById("stat-competitors").textContent =
-      data.competitors_found || 0;
-    document.getElementById("stat-radius").textContent =
-      data.search_radius_used || "20 miles";
-
+    document.getElementById("stat-competitors").textContent = data.competitors_found || 0;
+    document.getElementById("stat-radius").textContent = data.search_radius_used || "20 miles";
     const restaurants = data.restaurants || [];
     const avgRating = restaurants.length
-      ? (
-          restaurants.reduce((s, r) => s + (r.rating || 0), 0) /
-          restaurants.length
-        ).toFixed(1)
+      ? (restaurants.reduce((s, r) => s + (r.rating || 0), 0) / restaurants.length).toFixed(1)
       : "0";
     document.getElementById("stat-avg-rating").textContent = avgRating;
-
     const platforms = new Set();
-    restaurants.forEach((r) =>
-      (r.delivery_platforms || []).forEach((p) => platforms.add(p)),
-    );
+    restaurants.forEach((r) => (r.delivery_platforms || []).forEach((p) => platforms.add(p)));
     document.getElementById("stat-platforms").textContent = platforms.size;
   },
 
   renderFilterBar(restaurants) {
     const container = document.getElementById("filter-bar");
     if (!container) return;
-
     const groups = new Set(["all"]);
-    restaurants.forEach((r) => {
-      if (r.radius_group) groups.add(r.radius_group);
-    });
-
-    container.innerHTML =
-      '<span style="font-size:0.8rem;color:var(--text-muted);margin-right:4px;">Filter:</span>';
+    restaurants.forEach((r) => { if (r.radius_group) groups.add(r.radius_group); });
+    container.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted);margin-right:4px;">Filter:</span>';
     for (const g of groups) {
       const chip = document.createElement("button");
       chip.className = `filter-chip${g === "all" ? " active" : ""}`;
       chip.textContent = g === "all" ? "All" : `≤ ${g}`;
       chip.onclick = () => {
-        document
-          .querySelectorAll(".filter-chip")
-          .forEach((c) => c.classList.remove("active"));
+        document.querySelectorAll(".filter-chip").forEach((c) => c.classList.remove("active"));
         chip.classList.add("active");
         this.state.activeRadius = g;
-        const filtered =
-          g === "all"
-            ? this.state.restaurants
-            : this.state.restaurants.filter((r) => r.radius_group === g);
+        const filtered = g === "all" ? this.state.restaurants : this.state.restaurants.filter((r) => r.radius_group === g);
         this.renderRestaurantGrid(filtered);
       };
       container.appendChild(chip);
@@ -136,23 +185,16 @@ const App = {
   renderRestaurantGrid(restaurants) {
     const grid = document.getElementById("restaurant-grid");
     if (!grid) return;
-
     if (!restaurants.length) {
-      grid.innerHTML =
-        '<p style="color:var(--text-muted);text-align:center;padding:40px;">No restaurants found in this radius.</p>';
+      grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px;">No restaurants found in this radius.</p>';
       return;
     }
-
-    grid.innerHTML = restaurants
-      .map((r, idx) => {
-        const realIdx = this.state.restaurants.indexOf(r);
-        const ratingStars = "★".repeat(Math.floor(r.rating || 0));
-        const deliveryTags = (r.delivery_platforms || [])
-          .map((p) => `<span class="delivery-tag">${p}</span>`)
-          .join("");
-        const topOffer = r.offers && r.offers.length ? r.offers[0].title : "";
-
-        return `<div class="restaurant-card" id="restaurant-card-${realIdx}">
+    grid.innerHTML = restaurants.map((r, idx) => {
+      const realIdx = this.state.restaurants.indexOf(r);
+      const ratingStars = "★".repeat(Math.floor(r.rating || 0));
+      const deliveryTags = (r.delivery_platforms || []).map((p) => `<span class="delivery-tag">${p}</span>`).join("");
+      const topOffer = r.offers && r.offers.length ? r.offers[0].title : "";
+      return `<div class="restaurant-card" id="restaurant-card-${realIdx}">
         <div class="card-header">
           <div>
             <div class="restaurant-name">${r.name}</div>
@@ -171,132 +213,16 @@ const App = {
           <i class="fa-solid fa-scale-balanced icon-inline" aria-hidden="true"></i>Compare With Our Restaurant
         </button>
       </div>`;
-      })
-      .join("");
+    }).join("");
   },
 
-  // ── Market Analysis ─────────────────────────
-  async loadMarketAnalysis() {
-    Utils.showLoading("market-content", "Generating market analysis...");
-    try {
-      const data = await API.getMarketAnalysis();
-      this.state.marketLoaded = true;
-      this.renderMarketAnalysis(data);
-    } catch (e) {
-      document.getElementById("market-content").innerHTML =
-        '<p style="color:var(--danger);padding:20px;">Failed to load market analysis.</p>';
-    }
-  },
 
-  renderMarketAnalysis(data) {
-    const el = document.getElementById("market-content");
-    if (!el) return;
-    Charts.destroyAll(this.state.marketCharts);
-
-    const ma = data.market_analysis || {};
-    let html = `
-      <div class="chart-container" style="height:320px;margin-bottom:20px;">
-        <canvas id="market-ratings-chart"></canvas>
-      </div>
-      <div class="market-section">
-        <h3><i class="fa-solid fa-chart-line icon-inline" aria-hidden="true"></i>Market Overview</h3>
-        <div class="market-grid">
-          <div class="market-item"><div class="label">Cheapest Restaurant</div><div class="value">${ma.cheapest_restaurant || "N/A"}</div></div>
-          <div class="market-item"><div class="label">Premium Restaurant</div><div class="value">${ma.premium_restaurant || "N/A"}</div></div>
-          <div class="market-item"><div class="label">Best Rated</div><div class="value">${ma.best_rated || "N/A"}</div></div>
-          <div class="market-item"><div class="label">Most Discounted</div><div class="value">${ma.most_discounted || "N/A"}</div></div>
-        </div>
-      </div>`;
-
-    const patterns = ma.common_pricing_patterns || [];
-    const trends = ma.customer_trends || [];
-    if (patterns.length || trends.length) {
-      html += `<div class="market-section"><h3><i class="fa-solid fa-magnifying-glass icon-inline" aria-hidden="true"></i>Patterns & Trends</h3><div class="chart-row">`;
-      if (patterns.length) {
-        html += `<div><h4 style="font-size:0.88rem;color:var(--accent-blue);margin-bottom:8px;">Pricing Patterns</h4><ul class="rec-list">`;
-        for (const p of patterns) html += `<li>${p}</li>`;
-        html += `</ul></div>`;
-      }
-      if (trends.length) {
-        html += `<div><h4 style="font-size:0.88rem;color:var(--accent-gold);margin-bottom:8px;">Customer Trends</h4><ul class="rec-list">`;
-        for (const t of trends) html += `<li>${t}</li>`;
-        html += `</ul></div>`;
-      }
-      html += `</div></div>`;
-    }
-    el.innerHTML = html;
-
-    setTimeout(() => {
-      if (this.state.restaurants.length) {
-        this.state.marketCharts.ratings = Charts.createMarketPriceChart(
-          "market-ratings-chart",
-          this.state.restaurants,
-        );
-      }
-    }, 100);
-  },
-
-  // ── Pricing Analysis ────────────────────────
-  async loadPricingAnalysis() {
-    Utils.showLoading("pricing-content", "Analyzing pricing strategies...");
-    try {
-      const data = await API.getPricingAnalysis();
-      this.state.pricingLoaded = true;
-      this.renderPricingAnalysis(data);
-    } catch (e) {
-      document.getElementById("pricing-content").innerHTML =
-        '<p style="color:var(--danger);padding:20px;">Failed to load pricing analysis.</p>';
-    }
-  },
-
-  renderPricingAnalysis(data) {
-    const el = document.getElementById("pricing-content");
-    if (!el) return;
-
-    let html = "";
-    const reduce = data.reduce_price || [];
-    const increase = data.increase_price || [];
-
-    if (reduce.length) {
-      html += `<div class="market-section"><h3><i class="fa-solid fa-arrow-trend-down icon-inline" aria-hidden="true"></i>Consider Reducing Price</h3>
-        <table class="comp-table"><thead><tr><th>Item</th><th>Current</th><th>Suggested</th><th>Reason</th></tr></thead><tbody>`;
-      for (const r of reduce) {
-        html += `<tr><td style="color:var(--text-primary);">${r.item}</td>
-          <td style="color:var(--danger);">${Utils.formatCurrency(r.current)}</td>
-          <td style="color:var(--success);">${Utils.formatCurrency(r.suggested)}</td>
-          <td>${r.reason}</td></tr>`;
-      }
-      html += `</tbody></table></div>`;
-    }
-
-    if (increase.length) {
-      html += `<div class="market-section"><h3><i class="fa-solid fa-arrow-trend-up icon-inline" aria-hidden="true"></i>Opportunity to Increase Price</h3>
-        <table class="comp-table"><thead><tr><th>Item</th><th>Current</th><th>Suggested</th><th>Reason</th></tr></thead><tbody>`;
-      for (const i of increase) {
-        html += `<tr><td style="color:var(--text-primary);">${i.item}</td>
-          <td>${Utils.formatCurrency(i.current)}</td>
-          <td style="color:var(--accent-gold);">${Utils.formatCurrency(i.suggested)}</td>
-          <td>${i.reason}</td></tr>`;
-      }
-      html += `</tbody></table></div>`;
-    }
-
-    if (data.summary) {
-      html += `<div class="market-section"><h3><i class="fa-solid fa-list-check icon-inline" aria-hidden="true"></i>Summary</h3><p style="font-size:0.9rem;color:var(--text-secondary);">${data.summary}</p></div>`;
-    }
-
-    if (!html)
-      html =
-        '<div class="market-section"><p style="color:var(--text-muted);">All items are competitively priced!</p></div>';
-    el.innerHTML = html;
-  },
 
   // ── Recommendations ─────────────────────────
   async loadRecommendations() {
     Utils.showLoading("recs-content", "Generating AI recommendations...");
     try {
       const data = await API.getRecommendations();
-      this.state.recsLoaded = true;
       this.renderRecommendations(data);
     } catch (e) {
       document.getElementById("recs-content").innerHTML =
@@ -307,25 +233,11 @@ const App = {
   renderRecommendations(data) {
     const el = document.getElementById("recs-content");
     if (!el) return;
-
     const sections = [
-      {
-        key: "offer_optimization",
-        icon: '<i class="fa-solid fa-bullseye icon-inline" aria-hidden="true"></i>',
-        title: "Offer Optimization",
-      },
-      {
-        key: "menu_optimization",
-        icon: '<i class="fa-solid fa-list icon-inline" aria-hidden="true"></i>',
-        title: "Menu Optimization",
-      },
-      {
-        key: "sales_optimization",
-        icon: '<i class="fa-solid fa-chart-line icon-inline" aria-hidden="true"></i>',
-        title: "Sales Optimization",
-      },
+      { key: "offer_optimization", icon: '<i class="fa-solid fa-bullseye icon-inline" aria-hidden="true"></i>', title: "Offer Optimization" },
+      { key: "menu_optimization", icon: '<i class="fa-solid fa-list icon-inline" aria-hidden="true"></i>', title: "Menu Optimization" },
+      { key: "sales_optimization", icon: '<i class="fa-solid fa-chart-line icon-inline" aria-hidden="true"></i>', title: "Sales Optimization" },
     ];
-
     let html = "";
     for (const sec of sections) {
       const sData = data[sec.key];
@@ -333,20 +245,14 @@ const App = {
       html += `<div class="rec-section"><h3>${sec.icon}${sec.title}</h3>`;
       for (const [cat, items] of Object.entries(sData)) {
         if (!Array.isArray(items) || !items.length) continue;
-        const label = cat
-          .replace(/_/g, " ")
-          .replace(/\b\w/g, (l) => l.toUpperCase());
+        const label = cat.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
         html += `<div class="rec-category"><h4><i class="fa-solid fa-angle-right icon-inline" aria-hidden="true"></i>${label}</h4><div class="rec-tags">`;
-        for (const item of items)
-          html += `<span class="rec-tag">${item}</span>`;
+        for (const item of items) html += `<span class="rec-tag">${item}</span>`;
         html += `</div></div>`;
       }
       html += `</div>`;
     }
-
-    if (!html)
-      html =
-        '<div class="rec-section"><p>No recommendations available yet.</p></div>';
+    if (!html) html = '<div class="rec-section"><p>No recommendations available yet.</p></div>';
     el.innerHTML = html;
   },
 };

@@ -62,12 +62,17 @@ const Comparison = {
         <th>Item</th><th>${clientName}</th><th>${compName}</th><th>Diff</th><th>Better Value</th>
       </tr></thead><tbody>`;
     for (const item of (pc.items || []).slice(0, 12)) {
+      const clientPrice = item.client_price;
+      const competitorPrice = item.competitor_price;
+      const hasPrices = clientPrice != null && competitorPrice != null;
+      const diffValue = hasPrices ? item.difference : null;
+      const betterValue = hasPrices ? item.better_value : "no_data";
       html += `<tr>
         <td style="color:var(--text-primary);font-weight:500;">${item.item}</td>
-        <td>${Utils.formatCurrency(item.client_price)}</td>
-        <td>${Utils.formatCurrency(item.competitor_price)}</td>
-        <td style="color:${item.difference > 0 ? "var(--danger)" : "var(--success)"};">${item.difference > 0 ? "+" : ""}${Utils.formatCurrency(Math.abs(item.difference))}</td>
-        <td><span class="badge-better ${Utils.getBadgeClass(item.better_value)}">${Utils.getBadgeLabel(item.better_value)}</span></td>
+        <td>${Utils.formatCurrency(clientPrice)}</td>
+        <td>${Utils.formatCurrency(competitorPrice)}</td>
+        <td style="color:${diffValue == null ? "var(--text-muted)" : diffValue > 0 ? "var(--danger)" : "var(--success)"};">${diffValue == null ? "N/A" : `${diffValue > 0 ? "+" : ""}${Utils.formatCurrency(Math.abs(diffValue))}`}</td>
+        <td><span class="badge-better ${Utils.getBadgeClass(betterValue)}">${Utils.getBadgeLabel(betterValue)}</span></td>
       </tr>`;
     }
     html += `</tbody></table>

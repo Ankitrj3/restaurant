@@ -14,7 +14,10 @@ class ScraperService:
     """Multi-platform restaurant data scraper."""
 
     def __init__(self):
+        import urllib3
+        urllib3.disable_warnings()
         self.session = requests.Session()
+        self.session.verify = False
         self.session.headers.update({
             'User-Agent': Config.USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml',
@@ -84,23 +87,9 @@ class ScraperService:
             return {'url': url, 'content': '', 'title': '', 'success': False}
 
     def extract_menu_with_playwright(self, url):
-        """Extract menu from dynamic pages using Playwright."""
-        try:
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.goto(url, wait_until='networkidle', timeout=30000)
-                page.wait_for_timeout(3000)
-                content = page.content()
-                browser.close()
-                soup = BeautifulSoup(content, 'lxml')
-                for tag in soup(['script', 'style', 'nav', 'footer']):
-                    tag.decompose()
-                return {'url': url, 'content': self._find_menu_section(soup), 'success': True, 'method': 'playwright'}
-        except Exception as e:
-            print(f"[Scraper] Playwright error: {e}")
-            return self.extract_menu_from_url(url)
+        """Extract menu from dynamic pages using Playwright (Disabled due to EPIPE crash)."""
+        print(f"[Scraper] Playwright is disabled on this machine to prevent crashes. Using fallback for {url}")
+        return self.extract_menu_from_url(url)
 
     def extract_offers_from_page(self, url):
         """Extract offers and promotions from a page."""
@@ -137,7 +126,11 @@ class ScraperService:
 
     def _is_excluded(self, name):
         """Check if a restaurant should be excluded from results."""
-        excluded = ['bawarchi biryanis', 'bawarchi biryani']
+        excluded = [
+            'bawarchi biryanis',
+            'bawarchi biryani',
+            'bawarchi indian cuisine & bar leander',
+        ]
         return name.lower().strip() in excluded
 
 

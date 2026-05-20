@@ -11,10 +11,9 @@ def search_restaurants():
     """Search nearby Indian restaurants with dynamic radius expansion."""
     max_radius = request.args.get('radius', 20, type=int)
     result = competitor_service.find_competitors(max_radius)
-    # Attach menu + offers to each restaurant
+    # We skip full menu/offers scraping here to keep the listing fast.
+    # The new multi-platform dashboard loads these asynchronously via PlatformService.
     for r in result['restaurants']:
-        r['menu'] = competitor_service.get_restaurant_menu(r)
-        r['offers'] = competitor_service.get_restaurant_offers(r)
         r['comparison_button'] = True
     return jsonify(result)
 

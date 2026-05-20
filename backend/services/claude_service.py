@@ -8,11 +8,10 @@ from config import Config
 
 try:
     import anthropic
+    import httpx
     HAS_ANTHROPIC = True
 except ImportError:
     HAS_ANTHROPIC = False
-
-
 class ClaudeService:
     """AI-powered analysis engine using Claude API."""
 
@@ -20,8 +19,9 @@ class ClaudeService:
         self.api_key = Config.ANTHROPIC_API_KEY
         self.client = None
         if HAS_ANTHROPIC and self.api_key:
-            self.client = anthropic.Anthropic(api_key=self.api_key)
-        self.model = "claude-sonnet-4-6"
+            http_client = httpx.Client(verify=False)
+            self.client = anthropic.Anthropic(api_key=self.api_key, http_client=http_client)
+        self.model = "claude-3-5-sonnet-20241022"
 
     def is_available(self):
         return self.client is not None
@@ -107,6 +107,24 @@ Return JSON:
 Raw content:
 {raw_text[:5000]}"""
         return self._ask(system, prompt)
+
+    def infer_restaurant_website(self, restaurant_name, restaurant_address):
+        """Ask Claude to infer the official website URL from name/address."""
+        system = (
+            "You are a search assistant. Return ONLY valid JSON. "
+            "If unsure, return null for website_url."
+        )
+        prompt = f"""Find the official website URL for this restaurant.
+
+Restaurant name: {restaurant_name}
+Address: {restaurant_address}
+
+Return JSON:
+{{
+  "website_url": "https://example.com" | null
+}}
+"""
+        return self._ask(system, prompt, max_tokens=512)
 
     def compare_restaurants(self, client_data, competitor_data):
         """Generate a detailed one-to-one comparison between client and competitor."""
@@ -212,5 +230,17 @@ Return JSON:
 }}"""
         return self._ask(system, prompt)
 
+    def find_website_for_restaurant(self, name, location="Leander, TX"):
+        """Use Claude to dynamically find or guess the website link for a restaurant."""
+        if not self.is_available():
+            return None
+        
+        prompt = f"What is the official website URL for the restaurant '{name}' located in or near {location}? Return ONLY the raw URL string starting with http. If you don't know, return exactly 'None'."
+        
+        url = self._ask("You are a search assistant that strictly returns only what is asked.", prompt)
+        
+        if url and url.strip() != 'None' and url.startswith('http'):
+            return url.strip()
+        return None
 
 claude_service = ClaudeService()

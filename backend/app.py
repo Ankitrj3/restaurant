@@ -9,6 +9,7 @@ from flask_cors import CORS
 from config import Config
 from routes.restaurant_routes import restaurant_bp
 from routes.comparison_routes import comparison_bp
+from routes.platform_routes import platform_bp
 
 app = Flask(__name__,
             static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'frontend'),
@@ -20,6 +21,7 @@ app.config['SECRET_KEY'] = Config.SECRET_KEY
 # Register blueprints
 app.register_blueprint(restaurant_bp)
 app.register_blueprint(comparison_bp)
+app.register_blueprint(platform_bp)
 
 
 # ── Frontend serving ───────────────────────────────────
@@ -41,11 +43,11 @@ def serve_js(path):
 # ── Health check ───────────────────────────────────────
 @app.route('/api/health')
 def health():
-    from services.claude_service import claude_service
+    from services.gemini_service import gemini_service
     warnings = Config.validate()
     return jsonify({
         "status": "ok",
-        "claude_available": claude_service.is_available(),
+        "gemini_available": gemini_service.is_available(),
         "warnings": warnings,
     })
 
@@ -53,8 +55,13 @@ def health():
 if __name__ == '__main__':
     warnings = Config.validate()
     for w in warnings:
-        print(f"⚠️  {w}")
-    print(f"\n🚀 Starting server on http://localhost:{Config.FLASK_PORT}")
-    print(f"📍 Client: {Config.CLIENT_RESTAURANT_NAME}")
-    print(f"📌 Address: {Config.CLIENT_RESTAURANT_ADDRESS}\n")
+        print(f"[WARNING] {w}")
+        
+    # Start APScheduler background jobs
+    from services.background_jobs import background_jobs
+    background_jobs.start()
+    
+    print(f"\n[STARTING] Server on http://localhost:{Config.FLASK_PORT}")
+    print(f"[CLIENT] {Config.CLIENT_RESTAURANT_NAME}")
+    print(f"[ADDRESS] {Config.CLIENT_RESTAURANT_ADDRESS}\n")
     app.run(host='0.0.0.0', port=Config.FLASK_PORT, debug=Config.FLASK_DEBUG)
