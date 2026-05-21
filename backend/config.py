@@ -36,13 +36,13 @@ class Config:
     DB_PASSWORD = os.getenv('DB_PASSWORD', 'password')
 
     # --- Client Restaurant ---
-    CLIENT_RESTAURANT_NAME = os.getenv('CLIENT_RESTAURANT_NAME', 'Bawarchi Biryanis')
+    CLIENT_RESTAURANT_NAME = os.getenv('CLIENT_RESTAURANT_NAME', 'Bawarchi Indian Cuisine & Bar Leander')
     CLIENT_RESTAURANT_ADDRESS = os.getenv(
         'CLIENT_RESTAURANT_ADDRESS',
-        '1611 S College Ave #100, Fort Collins, CO 80525, United States'
+        '15881 Ronald Reagan Blvd #5, Leander, TX 78641, United States'
     )
-    CLIENT_LAT = float(os.getenv('CLIENT_LAT', 40.5653))
-    CLIENT_LNG = float(os.getenv('CLIENT_LNG', -105.0844))
+    CLIENT_LAT = float(os.getenv('CLIENT_LAT', 30.5680447))
+    CLIENT_LNG = float(os.getenv('CLIENT_LNG', -97.8029374))
     CLIENT_MENU_URL = os.getenv('CLIENT_MENU_URL', 'https://www.bawarchibiryanis.com/menu')
     CLIENT_MENU_CACHE_SECONDS = int(os.getenv('CLIENT_MENU_CACHE_SECONDS', 21600))
     COMPETITOR_MENU_CACHE_SECONDS = int(os.getenv('COMPETITOR_MENU_CACHE_SECONDS', 21600))

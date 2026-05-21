@@ -59,6 +59,31 @@ class OSMService:
                     "cuisine_tags": ["Indian"]
                 })
                 
+            # Guarantee that Desi Chowrastha and Hashtag India are always included (often missing/misclassified in OSM tags)
+            special_competitors = [
+                {
+                    "name": "Desi Chowrastha",
+                    "address": "14201 Ronald Reagan Blvd Suite 110, Leander, TX 78641, United States",
+                    "phone": "+1-512-528-5660",
+                    "website_url": "https://desichowrastha.com/",
+                    "latitude": 30.548480,
+                    "longitude": -97.788500,
+                    "cuisine_tags": ["Indian"]
+                },
+                {
+                    "name": "Hashtag India",
+                    "address": "13851 Ronald Reagan Blvd Suite 100, Cedar Park, TX 78613, United States",
+                    "phone": "+1-512-986-7788",
+                    "website_url": "https://hashtagindiatx.com/",
+                    "latitude": 30.542100,
+                    "longitude": -97.788100,
+                    "cuisine_tags": ["Indian"]
+                }
+            ]
+            for sc in special_competitors:
+                if not any(sc['name'].lower() in r['name'].lower() for r in restaurants):
+                    restaurants.append(sc)
+
             return restaurants
         except Exception as e:
             print(f"[OSM] Error querying Overpass API: {e}")

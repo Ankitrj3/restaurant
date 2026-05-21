@@ -12,7 +12,57 @@ from config import Config
 platform_bp = Blueprint('platform', __name__)
 
 
-# ── Restaurant & Category Listings ─────────────────────
+# ── Market Intelligence Matrix ─────────────────────────
+
+@platform_bp.route('/api/market-matrix', methods=['GET'])
+def get_market_matrix():
+    """Generate the full competitive pricing matrix.
+    
+    Uses Gemini with Google Search grounding to fetch REAL data from:
+    - Restaurant official websites (in-store prices)
+    - UberEats listings
+    - DoorDash listings  
+    - Grubhub listings
+    
+    Query params:
+        radius (float): Scan boundary in miles (default: 10.0)
+        format (str): 'json' (minified, default) or 'pretty' (indented)
+    
+    Returns the enforced JSON schema with matrix[], logistics_comparison[],
+    cross-platform price variance, and delivery threshold flags.
+    """
+    try:
+        radius = request.args.get('radius', 10.0, type=float)
+        fmt = request.args.get('format', 'json')
+        
+        from services.market_matrix_service import market_matrix_service
+        result = market_matrix_service.generate_matrix(radius_miles=radius)
+        
+        if fmt == 'pretty':
+            return app_jsonify_pretty(result)
+        
+        # Minified JSON (default)
+        return jsonify(result)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': str(e),
+            'market_center': Config.CLIENT_RESTAURANT_NAME,
+            'matrix': [],
+            'logistics_comparison': []
+        }), 500
+
+
+def app_jsonify_pretty(data):
+    """Return pretty-printed JSON response."""
+    import json as json_module
+    return json_module.dumps(data, indent=2, default=str), 200, {
+        'Content-Type': 'application/json'
+    }
+
+
 
 @platform_bp.route('/api/restaurants/list', methods=['GET'])
 def list_restaurants():

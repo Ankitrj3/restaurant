@@ -1,7 +1,7 @@
 """
-DoorDash adapter — fetches menu and delivery data from DoorDash.
-Uses Gemini API for intelligent menu generation per restaurant,
-with realistic platform-specific markups and delivery fees.
+DoorDash adapter — fetches REAL menu and delivery data from DoorDash.
+Uses Gemini API with Google Search grounding to find actual DoorDash listings
+and extract real platform-specific prices.
 """
 
 import random
@@ -12,7 +12,7 @@ from services.cache_service import cache_service
 
 
 class DoorDashAdapter(BasePlatformAdapter):
-    """Adapter for DoorDash platform data."""
+    """Adapter for DoorDash platform data — uses Google Search grounding."""
 
     PLATFORM_NAME = 'doordash'
 
@@ -23,19 +23,19 @@ class DoorDashAdapter(BasePlatformAdapter):
         return Config.DOORDASH_SCRAPE_ENABLED
 
     def fetch_menu(self, restaurant_name, location=None):
-        """Fetch DoorDash menu using Priority Chain."""
+        """Fetch DoorDash menu using Gemini Google Search grounding."""
         cache_key = f"{self.PLATFORM_NAME}_{restaurant_name.lower().strip()}"
-        
+
         # 1. Valid Cache
         cached_menu = cache_service.get('menu', cache_key)
         if cached_menu: return cached_menu
 
-        # Priority 1: Gemini Live
-        live_menu = self._fetch_gemini_menu(restaurant_name)
+        # Priority 1: Gemini with Google Search Grounding (REAL data)
+        live_menu = self._fetch_grounded_menu(restaurant_name)
         if live_menu:
             cache_service.set('menu', cache_key, live_menu)
             return live_menu
-            
+
         # Priority 2/3: Stale Cache Fallback
         fallback_menu = cache_service.get_latest('menu', cache_key)
         if fallback_menu:
@@ -50,19 +50,19 @@ class DoorDashAdapter(BasePlatformAdapter):
         return []
 
     def fetch_delivery_fees(self, restaurant_name, location=None):
-        """Fetch DoorDash delivery fees using Priority Chain."""
+        """Fetch DoorDash delivery fees using Gemini Google Search grounding."""
         cache_key = f"{self.PLATFORM_NAME}_{restaurant_name.lower().strip()}"
-        
+
         # 1. Valid Cache
         cached_fees = cache_service.get('delivery_fee', cache_key)
         if cached_fees: return cached_fees
 
-        # Priority 1: Gemini Live
-        live_fees = self._fetch_gemini_fees(restaurant_name)
+        # Priority 1: Gemini with Google Search Grounding
+        live_fees = self._fetch_grounded_fees(restaurant_name)
         if live_fees:
             cache_service.set('delivery_fee', cache_key, live_fees)
             return live_fees
-            
+
         # Priority 2/3: Stale Cache Fallback
         fallback_fees = cache_service.get_latest('delivery_fee', cache_key)
         if fallback_fees:
@@ -72,68 +72,45 @@ class DoorDashAdapter(BasePlatformAdapter):
         # Priority 6: Generate realistic fallback fees
         return self._generate_fallback_fees(restaurant_name)
 
-    def _fetch_gemini_menu(self, restaurant_name):
-        """Use Gemini to generate realistic DoorDash menu for a restaurant."""
+    def _fetch_grounded_menu(self, restaurant_name):
+        """Use Gemini with Google Search grounding to find REAL DoorDash menu prices."""
         try:
             from services.gemini_service import gemini_service
             if not gemini_service.is_available():
                 return None
 
-            result = gemini_service._ask(
-                "You are a restaurant menu data API for DoorDash. Return ONLY valid JSON.",
-                f"""Generate the DoorDash menu for "{restaurant_name}" near Leander, TX.
-DoorDash prices are typically 12-25% higher than in-store prices.
-
-Return JSON:
-{{
-  "items": [
-    {{
-      "item_name": "Chicken Biryani",
-      "category": "Biryani",
-      "price": 17.49,
-      "is_veg": false,
-      "description": "Aromatic basmati rice with chicken",
-      "is_available": true
-    }}
-  ]
-}}
-
-Include at least 15 items across categories: Biryani, Curries, Starters, Tandoori, Bread, Desserts, Drinks, Combos.
-Use realistic DoorDash pricing for the Austin/Leander TX area."""
+            address = Config.CLIENT_RESTAURANT_ADDRESS
+            result = gemini_service.fetch_restaurant_menu_from_platform(
+                restaurant_name, address, 'doordash'
             )
+
             if result and isinstance(result, dict):
+                if result.get('not_found'):
+                    print(f"[DoorDash] Restaurant '{restaurant_name}' not found on DoorDash via search")
+                    return None
                 items = result.get('items', [])
-                return [self._normalize_item(item, source='doordash_gemini') for item in items]
+                if items:
+                    print(f"[DoorDash] Found {len(items)} REAL items for '{restaurant_name}' via Google Search")
+                    return [self._normalize_item(item, source='doordash_grounded') for item in items]
         except Exception as e:
-            print(f"[DoorDashAdapter] Gemini error: {e}")
+            print(f"[DoorDashAdapter] Grounded search error: {e}")
         return None
 
-    def _fetch_gemini_fees(self, restaurant_name):
-        """Use Gemini to estimate DoorDash delivery fees."""
+    def _fetch_grounded_fees(self, restaurant_name):
+        """Use Gemini with Google Search grounding to find REAL DoorDash delivery fees."""
         try:
             from services.gemini_service import gemini_service
             if not gemini_service.is_available():
                 return None
 
-            result = gemini_service._ask(
-                "You are a delivery fee estimation API. Return ONLY valid JSON.",
-                f"""Estimate realistic DoorDash delivery fees for "{restaurant_name}" delivering to Leander, TX.
-
-Return JSON:
-{{
-  "delivery_fee": 2.99,
-  "service_fee": 2.99,
-  "surge_fee": 0,
-  "tax_estimate": 2.20,
-  "free_delivery_threshold": 20.00,
-  "min_order_amount": 10.00,
-  "estimated_delivery_time": "25-40 min"
-}}"""
+            result = gemini_service.fetch_delivery_fees_from_platform(
+                restaurant_name, 'DoorDash'
             )
             if result and isinstance(result, dict) and 'delivery_fee' in result:
+                print(f"[DoorDash] Found REAL delivery fees for '{restaurant_name}' via Google Search")
                 return result
         except Exception as e:
-            print(f"[DoorDashAdapter] Gemini fee error: {e}")
+            print(f"[DoorDashAdapter] Grounded fee search error: {e}")
         return None
 
     def _generate_fallback_menu(self, restaurant_name):

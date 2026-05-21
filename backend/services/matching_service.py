@@ -193,6 +193,38 @@ class MatchingService:
 
         return matched
 
+    # Category classification rules for the 5 standard categories
+    CATEGORY_RULES = {
+        'Biryani': ['biryani', 'biriyani', 'pulav', 'pulao', 'pulau', 'dum biryani', 'dum', 'rice bowl'],
+        'Curries': ['butter chicken', 'tikka masala', 'korma', 'paneer', 'dal', 'curry', 'currie',
+                    'saag', 'vindaloo', 'rogan', 'makhani', 'kadai', 'jalfrezi', 'madras',
+                    'chettinad', 'malai', 'kofta', 'do pyaza', 'masala curry', 'gravy',
+                    'chana', 'aloo', 'palak', 'bhindi', 'baigan', 'gobi curry'],
+        'Starter': ['samosa', 'pakora', 'manchurian', 'gobi 65', 'chicken 65', 'chicken 555',
+                    'bajji', 'bhaji', 'chaat', 'spring roll', 'appetizer', 'starter',
+                    'paneer 65', 'idli', 'dosa', 'vada', 'papdi', 'soup', 'salad',
+                    'aloo tikki', 'corn', 'mushroom', 'mirchi', 'onion ring'],
+        'Tandoori': ['kebab', 'kebap', 'tikka', 'tandoori', 'tandoor', 'seekh', 'reshmi',
+                     'clay oven', 'naan', 'roti', 'kulcha', 'paratha', 'bread',
+                     'boti', 'malai tikka', 'achari', 'hariyali', 'grill'],
+        'Dessert': ['gulab jamun', 'rasmalai', 'ras malai', 'kheer', 'halwa', 'jalebi',
+                    'ice cream', 'kulfi', 'laddu', 'ladoo', 'barfi', 'rasgulla',
+                    'payasam', 'falooda', 'gajar', 'moong dal halwa', 'sweet', 'dessert'],
+    }
+
+    def categorize_dish(self, dish_name):
+        """Map a dish name to one of the 5 standard categories.
+        Returns the category string or 'Other' if no match."""
+        if not dish_name:
+            return 'Other'
+        name_lower = dish_name.lower().strip()
+        # Check each category's keywords
+        for category, keywords in self.CATEGORY_RULES.items():
+            for keyword in keywords:
+                if keyword in name_lower:
+                    return category
+        return 'Other'
+
     def _basic_similarity(self, s1, s2):
         """Basic token overlap similarity when rapidfuzz is unavailable."""
         tokens1 = set(s1.split())
