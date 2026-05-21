@@ -37,14 +37,17 @@ start_service() {
     fi
   fi
 
-  # Start the server
-  echo "Starting Flask server on port $PORT..."
+  # Start the server in detached background mode
+  echo "Starting Flask server on port $PORT in detached mode..."
   cd backend
   if [ "$IS_WINDOWS" = true ]; then
-    python app.py
+    nohup python app.py > app.log 2>&1 &
   else
-    python3 app.py
+    nohup python3 app.py > app.log 2>&1 &
   fi
+  echo "Service started successfully in background."
+  echo "URL: http://localhost:$PORT"
+  echo "You can view live logs by running: tail -f backend/app.log"
 }
 
 stop_service() {
