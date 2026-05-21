@@ -116,7 +116,50 @@ EOT
     echo ".env file created. Please open it and add your Gemini/Claude API Keys."
 fi
 
-# 6. Make control script executable
+# 6. Set up PostgreSQL Docker container if Docker is available
+echo "Setting up PostgreSQL Docker container..."
+# Read DB variables from .env to match user configuration
+DB_PORT=$(grep -E "^DB_PORT=" .env | cut -d'=' -f2 | tr -d '\r ')
+DB_NAME=$(grep -E "^DB_NAME=" .env | cut -d'=' -f2 | tr -d '\r ')
+DB_USER=$(grep -E "^DB_USER=" .env | cut -d'=' -f2 | tr -d '\r ')
+DB_PASSWORD=$(grep -E "^DB_PASSWORD=" .env | cut -d'=' -f2 | tr -d '\r ')
+
+if [ -z "$DB_PORT" ]; then DB_PORT=5433; fi
+if [ -z "$DB_NAME" ]; then DB_NAME=restaurant_intel; fi
+if [ -z "$DB_USER" ]; then DB_USER=postgres; fi
+if [ -z "$DB_PASSWORD" ]; then DB_PASSWORD=restaurant123; fi
+
+if command -v docker &>/dev/null; then
+    if docker info &>/dev/null; then
+        CONTAINER_NAME="restaurant_postgres"
+        if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then
+            echo "Database container '$CONTAINER_NAME' already exists."
+            if [ "$(docker inspect -f '{{.State.Running}}' $CONTAINER_NAME)" = "false" ]; then
+                echo "Starting database container..."
+                docker start $CONTAINER_NAME
+            else
+                echo "Database container is already running."
+            fi
+        else
+            echo "Creating and starting PostgreSQL Docker container on port $DB_PORT..."
+            echo "Pulling postgres:15 Docker image..."
+            docker pull postgres:15
+            docker run --name "$CONTAINER_NAME" \
+              -e POSTGRES_USER="$DB_USER" \
+              -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+              -e POSTGRES_DB="$DB_NAME" \
+              -p "$DB_PORT":5432 \
+              -d postgres:15
+            echo "Database container created and started successfully."
+        fi
+    else
+        echo "Warning: Docker daemon is not running. Please start Docker to run the database container."
+    fi
+else
+    echo "Warning: Docker is not installed on this system. Skipping database container setup."
+fi
+
+# 7. Make control script executable
 if [ -f "service.sh" ]; then
     chmod +x service.sh
 fi
@@ -129,4 +172,3 @@ echo "  Start:   ./service.sh start"
 echo "  Stop:    ./service.sh stop"
 echo "  Restart: ./service.sh restart"
 echo "=========================================================="
-EOT
