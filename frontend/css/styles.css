@@ -711,3 +711,88 @@ a { color: var(--accent-blue); text-decoration: none; }
   border-color: var(--accent-purple-glow);
   color: var(--text-primary);
 }
+
+/* ── Platform Link Buttons & Rows ── */
+.platform-links-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.platform-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: var(--transition);
+  border: 1px solid transparent;
+  color: #ffffff !important;
+}
+
+.platform-link-btn i {
+  font-size: 0.75rem;
+  color: inherit !important;
+}
+
+/* Platform Colors */
+.platform-link-btn.ubereats-link {
+  background-color: #06c167; /* Uber Eats green */
+}
+.platform-link-btn.ubereats-link:hover {
+  background-color: #059b52;
+  box-shadow: 0 4px 12px rgba(6, 193, 103, 0.3);
+  transform: translateY(-1px);
+}
+
+.platform-link-btn.doordash-link {
+  background-color: #ff3008; /* DoorDash red */
+}
+.platform-link-btn.doordash-link:hover {
+  background-color: #e02300;
+  box-shadow: 0 4px 12px rgba(255, 48, 8, 0.3);
+  transform: translateY(-1px);
+}
+
+.platform-link-btn.grubhub-link {
+  background-color: #f97316; /* Grubhub orange */
+}
+.platform-link-btn.grubhub-link:hover {
+  background-color: #ea580c;
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+  transform: translateY(-1px);
+}
+
+.platform-link-btn.instore-link {
+  background-color: #4285f4; /* Google Maps blue */
+}
+.platform-link-btn.instore-link:hover {
+  background-color: #2563eb;
+  box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Clickable restaurant header links */
+.restaurant-platform-link {
+  color: var(--accent-purple) !important;
+  font-weight: 700;
+  text-decoration: none;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+}
+
+.restaurant-platform-link:hover {
+  color: var(--accent-blue) !important;
+  text-decoration: underline;
+}
+
+.restaurant-platform-link i {
+  color: inherit !important;
+}
+

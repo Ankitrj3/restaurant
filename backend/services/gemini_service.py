@@ -14,15 +14,35 @@ from config import Config
 # Disable SSL warnings since we are using verify=False to bypass corporate proxy
 urllib3.disable_warnings()
 
+# ── Global source registry ─────────────────────────────────────────────────
+# Stores the real web URLs that Gemini used for each grounded call type.
+# Shape: { call_label: [ {"url": ..., "title": ..., "call": ...}, ... ] }
+_source_registry = {}
+
+
+def get_source_registry():
+    """Return a copy of the accumulated source registry (all grounding URLs seen)."""
+    return dict(_source_registry)
+
+
+def _register_sources(label, sources):
+    """Add sources to the registry under the given label."""
+    if label not in _source_registry:
+        _source_registry[label] = []
+    for s in sources:
+        # Avoid exact duplicates
+        if s not in _source_registry[label]:
+            _source_registry[label].append(s)
+
 
 class GeminiService:
     def __init__(self):
         self.api_key = Config.GEMINI_API_KEY
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
         self._response_cache = {}
         # Circuit breaker: skip API calls for COOLDOWN seconds after a 429
-        self._rate_limited_until = 0
-        self._COOLDOWN_SECONDS = 300  # 5 minutes
+        self._rate_limited_until: float = 0.0
+        self._COOLDOWN_SECONDS = 60  # retry after 60s (free tier resets per-minute)
 
     def is_available(self):
         if not self.api_key:
@@ -189,15 +209,45 @@ class GeminiService:
                 text_parts = [p["text"] for p in parts if "text" in p]
                 full_text = "\n".join(text_parts)
 
-                # Log grounding metadata if present
+                # ── Parse grounding metadata (real web URLs Gemini searched) ──
                 grounding = data["candidates"][0].get("groundingMetadata", {})
-                search_queries = grounding.get("searchEntryPoint", {}).get("renderedContent", "")
-                web_sources = grounding.get("groundingChunks", [])
-                if web_sources:
-                    print(f"[Gemini] Grounded with {len(web_sources)} web sources")
+                web_chunks = grounding.get("groundingChunks", [])
+                search_queries_used = [
+                    q.get("query", "")
+                    for q in grounding.get("webSearchQueries", [])
+                    if q.get("query")
+                ]
+
+                # Build a clean list of source objects
+                parsed_sources = []
+                for chunk in web_chunks:
+                    web = chunk.get("web", {})
+                    uri = web.get("uri") or web.get("url")
+                    title = web.get("title", "")
+                    if uri:
+                        parsed_sources.append({
+                            "url": uri,
+                            "title": title,
+                            "search_queries": search_queries_used,
+                        })
+
+                if parsed_sources:
+                    print(f"[Gemini] Grounded with {len(parsed_sources)} web sources: "
+                          f"{[s['url'] for s in parsed_sources[:3]]}")
+                    # Store in module-level registry keyed by prompt fingerprint
+                    label = user_prompt[:80].strip().replace('\n', ' ')
+                    _register_sources(label, parsed_sources)
 
                 result = self._extract_json_from_text(full_text)
                 if result is not None:
+                    # Attach source URLs directly onto the result so callers can surface them
+                    if isinstance(result, dict):
+                        result['_sources'] = parsed_sources
+                        result['_search_queries'] = search_queries_used
+                    elif isinstance(result, list) and parsed_sources:
+                        # For list results, wrap in a dict so sources are still accessible
+                        # but keep backward compatibility — attach on first element metadata
+                        pass  # List callers should check get_source_registry()
                     self._response_cache[cache_key] = result
                     return result
                 else:
@@ -214,18 +264,29 @@ class GeminiService:
 
     # ── Public Methods (all use grounded search for real data) ──────────
 
-    def search_nearby_restaurants(self, location, radius_miles):
+    def search_nearby_restaurants(self, location, radius_miles, address=None):
         """Use Gemini with Google Search to discover REAL nearby Indian restaurants."""
+        if not address:
+            address = Config.CLIENT_RESTAURANT_ADDRESS
+
+        # Parse street/city/state from address for local query terms
+        parts = [p.strip() for p in address.split(',') if p.strip()]
+        city_state = ""
+        if len(parts) >= 3:
+            city_state = f"{parts[-3]} {parts[-2].split()[0]}" # E.g. "Leander TX"
+        else:
+            city_state = address
+
         system = (
             "You are a local business data extraction agent with Google Search access. "
             "Search Google Maps and the web for REAL, currently operating restaurants. "
             "Return ONLY a raw JSON array. Do not include any explanation or markdown."
         )
         prompt = f"""Search for real Indian, Pakistani, Nepalese, or Bengali restaurants 
-within a {radius_miles}-mile radius of coordinates {location}.
+within a {radius_miles}-mile radius of coordinates {location} (located at {address}).
 
-Use Google Search to find REAL restaurants that are currently open and operating.
-For each restaurant, find their actual address, phone number, and website.
+Use Google Search to find REAL restaurants that are currently open and operating in this specific local area.
+You MUST search using local query terms targeting {city_state} or the surrounding area to avoid returning search results from other locations or countries.
 
 Return EXACTLY this JSON array format:
 [
@@ -383,6 +444,7 @@ Return this exact JSON format:
 {{
   "restaurant_name": "{restaurant_name}",
   "platform": "{platform}",
+  "platform_url": "the direct URL to this restaurant's page on {site} (e.g. https://www.{site}/store/...)",
   "data_source": "google_search_grounding",
   "items": [
     {{
@@ -398,13 +460,17 @@ Return this exact JSON format:
 
 IMPORTANT: 
 - Return REAL prices from search results, not estimates.
+- Include the REAL direct URL to the restaurant's page on {site} as "platform_url". This is critical.
 - If you cannot find this restaurant on {platform}, return {{"items": [], "not_found": true}}
 - Include at least the main menu categories: Biryani, Curries, Starters/Appetizers, Tandoori, Desserts.
 """
         return self._ask_grounded(system, prompt, max_tokens=8192)
 
-    def fetch_delivery_fees_from_platform(self, restaurant_name, platform):
+    def fetch_delivery_fees_from_platform(self, restaurant_name, platform, restaurant_address=None):
         """Use Google Search grounding to find REAL delivery fees from a platform."""
+        if not restaurant_address:
+            restaurant_address = Config.CLIENT_RESTAURANT_ADDRESS
+
         system = (
             "You are a delivery logistics data agent with Google Search access. "
             "Search for real delivery fee information. Return ONLY valid JSON."
@@ -413,7 +479,7 @@ IMPORTANT:
 
 Search for:
 - "{restaurant_name} {platform} delivery fee"
-- "{platform} delivery fee Leander TX"
+- "{platform} delivery fee near {restaurant_address}"
 
 Return JSON:
 {{
@@ -428,7 +494,7 @@ Return JSON:
   "data_source": "google_search_grounding"
 }}
 
-If you cannot find exact fees, return your best estimate based on typical {platform} fees in the Austin/Leander TX area and mark data_source as "estimated".
+If you cannot find exact fees, return your best estimate based on typical {platform} fees in the {restaurant_address} area and mark data_source as "estimated".
 """
         return self._ask_grounded(system, prompt, max_tokens=1024)
 
@@ -444,15 +510,35 @@ If you cannot find exact fees, return your best estimate based on typical {platf
             "near the given location and their real menu prices across platforms. "
             "Return ONLY a JSON object — no explanation text."
         )
+
+        # Parse street/city/state from restaurant_address for local query terms
+        parts = [p.strip() for p in restaurant_address.split(',') if p.strip()]
+        city_state = ""
+        street_area = ""
+        if len(parts) >= 3:
+            city_state = f"{parts[-3]} {parts[-2].split()[0]}" # E.g. "Leander TX"
+            street_area = parts[0]
+        else:
+            city_state = restaurant_address
+
+        query_terms = [
+            f"Indian restaurants near {restaurant_address}",
+            f"Indian restaurants near {restaurant_name}"
+        ]
+        if city_state:
+            query_terms.append(f"Indian restaurants {city_state}")
+            query_terms.append(f"restaurants {city_state}")
+        if street_area:
+            query_terms.append(f"Indian food near {street_area}")
+
+        step1_queries = "\n".join([f'- "{q}"' for q in query_terms])
+
         prompt = f"""Search Google for Indian cuisine restaurants within {radius_miles} miles of:
 Coordinates: {lat}, {lng}  
 Address: {restaurant_address}
 
 STEP 1: Find all Indian restaurants near this location. Search for:
-- "Indian restaurants near {restaurant_address}"
-- "Indian restaurants Leander TX"
-- "Indian restaurants Cedar Park TX"
-- "Indian food near Ronald Reagan Blvd Leander"
+{step1_queries}
 
 STEP 2: For EACH restaurant found (including "{restaurant_name}"), search for their menu prices:
 - Search their official website menu
@@ -503,6 +589,85 @@ CRITICAL RULES:
 - Categories MUST be one of: Biryani, Curries, Starter, Tandoori, Dessert (or other descriptive category)
 """
         return self._ask_grounded(system, prompt, max_tokens=16384, temperature=0.1)
+
+    def search_restaurant_platform_url(self, restaurant_name, restaurant_address, platform):
+        """Use Google Search grounding to find the REAL URL for a restaurant on a delivery platform.
+        
+        Lightweight grounded call — returns just the URL, not menu data.
+        The search is explicitly anchored to the configured restaurant address (US location)
+        to prevent geo-IP bias from returning results from the wrong country/region.
+        """
+        if not self.is_available():
+            return None
+
+        platform_domains = {
+            'ubereats': 'ubereats.com',
+            'doordash': 'doordash.com',
+            'grubhub': 'grubhub.com',
+        }
+        domain = platform_domains.get(platform)
+        if not domain:
+            return None
+
+        platform_labels = {
+            'ubereats': 'Uber Eats',
+            'doordash': 'DoorDash',
+            'grubhub': 'Grubhub',
+        }
+        label = platform_labels.get(platform, platform)
+
+        # Parse city/state from address for extra location anchoring
+        parts = [p.strip() for p in restaurant_address.split(',') if p.strip()]
+        city_state = ""
+        zip_code = ""
+        if len(parts) >= 3:
+            city_state = f"{parts[-3]} {parts[-2].split()[0]}"  # e.g. "Leander TX"
+            # Try to extract ZIP from the state field (e.g. "TX 78641")
+            state_parts = parts[-2].split()
+            if len(state_parts) >= 2:
+                zip_code = state_parts[-1]
+        else:
+            city_state = restaurant_address
+
+        system = (
+            "You are a URL lookup agent with Google Search access. "
+            "Find the exact URL for a restaurant on a US food delivery platform. "
+            "The restaurant is located in the United States. "
+            "Return ONLY valid JSON."
+        )
+        prompt = f"""Find the real {label} page URL for this restaurant located in the UNITED STATES:
+
+Restaurant: {restaurant_name}
+Full Address: {restaurant_address}
+City/State: {city_state}
+Country: United States
+
+IMPORTANT LOCATION CONTEXT: This restaurant is located in {city_state}, United States.
+You MUST search for the US listing. Do NOT return results from India, UK, Canada, or any other country.
+
+Search queries to try (in order of priority):
+1. site:{domain} "{restaurant_name}" "{city_state}"
+2. "{restaurant_name}" {label} {city_state} Texas United States
+3. "{restaurant_name}" {restaurant_address} {label}
+4. site:{domain} "{restaurant_name}"
+
+Verify the URL matches the correct US location before returning it.
+
+Return JSON:
+{{
+  "platform": "{platform}",
+  "platform_url": "https://www.{domain}/store/restaurant-slug/..." or null if not found,
+  "found": true or false,
+  "location_verified": true or false
+}}
+
+CRITICAL: 
+- Return the REAL direct URL to the US restaurant's page on {label}
+- The URL must be for the restaurant at {city_state}, NOT for any restaurant in India or other countries
+- Do NOT guess or fabricate a URL
+- If you cannot find a verified US URL, return null for platform_url and false for found
+"""
+        return self._ask_grounded(system, prompt, max_tokens=512)
 
 
 gemini_service = GeminiService()

@@ -10,6 +10,7 @@ const App = {
     activeRadius: "all",
     marketCharts: {},
     loaded: {},
+    platformUrls: {},
   },
 
   async init() {
@@ -137,6 +138,18 @@ const App = {
       this.state.searchData = data;
       this.state.restaurants = data.restaurants || [];
       this.updateStats(data);
+
+      // Fetch platform URLs in bulk
+      this.state.platformUrls = {};
+      if (this.state.restaurants.length) {
+        try {
+          const urlData = await API.getBulkPlatformUrls(this.state.restaurants.map(r => r.name));
+          this.state.platformUrls = urlData.urls || {};
+        } catch (err) {
+          console.error("Failed to fetch bulk platform URLs:", err);
+        }
+      }
+
       this.renderRestaurantGrid(this.state.restaurants);
       this.renderFilterBar(this.state.restaurants);
       PlatformComparison.populateCompetitorDropdowns(this.state.restaurants);
@@ -194,6 +207,34 @@ const App = {
       const ratingStars = "★".repeat(Math.floor(r.rating || 0));
       const deliveryTags = (r.delivery_platforms || []).map((p) => `<span class="delivery-tag">${p}</span>`).join("");
       const topOffer = r.offers && r.offers.length ? r.offers[0].title : "";
+      const urls = (this.state.platformUrls && this.state.platformUrls[r.name]) || {};
+
+      const platformLinksHtml = `
+        <div class="platform-links-row" style="margin-top: 8px; margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          ${urls.instore_url ? `
+            <a href="${urls.instore_url}" target="_blank" rel="noopener" class="platform-link-btn instore-link" style="text-decoration: none;" title="View location on Google Maps">
+              <i class="fa-solid fa-store"></i> In-Store
+            </a>
+          ` : ''}
+          ${urls.ubereats_url ? `
+            <a href="${urls.ubereats_url}" target="_blank" rel="noopener" class="platform-link-btn ubereats-link" style="text-decoration: none;" title="Open on Uber Eats">
+              <i class="fa-solid fa-up-right-from-square"></i> Uber Eats
+            </a>
+          ` : ''}
+          ${urls.doordash_url ? `
+            <a href="${urls.doordash_url}" target="_blank" rel="noopener" class="platform-link-btn doordash-link" style="text-decoration: none;" title="Open on DoorDash">
+              <i class="fa-solid fa-up-right-from-square"></i> DoorDash
+            </a>
+          ` : ''}
+          ${urls.grubhub_url ? `
+            <a href="${urls.grubhub_url}" target="_blank" rel="noopener" class="platform-link-btn grubhub-link" style="text-decoration: none;" title="Open on Grubhub">
+              <i class="fa-solid fa-up-right-from-square"></i> Grubhub
+            </a>
+          ` : ''}
+        </div>
+      `;
+
+
       return `<div class="restaurant-card" id="restaurant-card-${realIdx}">
         <div class="card-header">
           <div>
@@ -208,6 +249,7 @@ const App = {
           <span class="price-cat">${r.price_category || "$$"}</span>
         </div>
         <div class="delivery-tags">${deliveryTags || '<span class="delivery-tag">Dine-in</span>'}</div>
+        ${platformLinksHtml}
         ${topOffer ? `<div class="card-offers"><i class="fa-solid fa-tag icon-inline" aria-hidden="true"></i>${topOffer}</div>` : ""}
         <button class="btn-compare" onclick="Comparison.open(${realIdx}, '${r.name.replace(/'/g, "\\'")}')">
           <i class="fa-solid fa-scale-balanced icon-inline" aria-hidden="true"></i>Compare With Our Restaurant

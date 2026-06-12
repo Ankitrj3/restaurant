@@ -1,0 +1,10 @@
+[tool.pyrefly]
+# Point Pyrefly at the project virtual environment so it finds
+# Flask, requests, and all other installed packages.
+python_interpreter = "venv/bin/python"
+search_path = ["backend"]
+
+# Suppress missing-import errors for packages that are installed
+# in the venv but Pyrefly can't resolve through stubs.
+[tool.pyrefly.errors]
+missing-import = false

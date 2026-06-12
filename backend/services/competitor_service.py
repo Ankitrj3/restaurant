@@ -55,7 +55,7 @@ class CompetitorService:
     def __init__(self):
         self.client_restaurant = self._get_client_restaurant()
         self._client_menu_cache = None
-        self._client_menu_cache_ts = 0
+        self._client_menu_cache_ts = 0.0
         self._competitor_offers_cache = {}
         self._competitor_offers_cache_ts = {}
 
@@ -80,12 +80,15 @@ class CompetitorService:
         if max_radius is None:
             max_radius = Config.SEARCH_RADII_MILES[-1]
 
+        # Use location-dependent cache key so changing location in .env busts the cache
+        cache_key = f"{max_radius}_{Config.CLIENT_LAT}_{Config.CLIENT_LNG}"
+
         # 1. Try standard valid cache (Levels 1-3 handled by cache_service.get)
-        cached_result = cache_service.get('discovery', max_radius)
+        cached_result = cache_service.get('discovery', cache_key)
         if cached_result and cached_result.get('competitors_found', 0) > 0:
             return cached_result
 
-        print(f"[DEBUG] Cache miss/expired. Searching live for radius {max_radius}")
+        print(f"[DEBUG] Cache miss/expired. Searching live for radius {max_radius} at location {Config.CLIENT_LAT}, {Config.CLIENT_LNG}")
         
         # Priority 1: Live Platform (Gemini Search)
         all_restaurants = self._search_live(max_radius)
@@ -97,13 +100,13 @@ class CompetitorService:
                 "competitors_found": len(all_restaurants),
                 "restaurants": sorted(all_restaurants, key=lambda x: x.get('distance_miles', 99)),
             }
-            cache_service.set('discovery', max_radius, result)
+            cache_service.set('discovery', cache_key, result)
             return result
             
         print("[Competitor] Gemini returned 0 results, attempting fallback chain")
         
         # Priority 2 & 3: Real PostgreSQL Cache / Local JSON Snapshots (ignoring TTL)
-        fallback_cache = cache_service.get_latest('discovery', max_radius)
+        fallback_cache = cache_service.get_latest('discovery', cache_key)
         if fallback_cache and fallback_cache.get('competitors_found', 0) > 0:
             print("[Competitor] Priority 2/3: Restored from stale cache")
             return fallback_cache
@@ -259,7 +262,7 @@ class CompetitorService:
         restaurants = []
         try:
             location = f"{Config.CLIENT_LAT}, {Config.CLIENT_LNG}"
-            data = gemini_service.search_nearby_restaurants(location, radius)
+            data = gemini_service.search_nearby_restaurants(location, radius, address=Config.CLIENT_RESTAURANT_ADDRESS)
             
             if data and isinstance(data, list) and len(data) > 0:
                 for place in data:
@@ -383,8 +386,12 @@ class CompetitorService:
         if not gemini_service.is_available():
             return None
 
+        raw_offers = extracted.get('raw_offers')
+        if not isinstance(raw_offers, list):
+            raw_offers = []
+
         parsed = gemini_service.extract_offers_from_text(
-            '\n'.join(extracted.get('raw_offers', [])),
+            '\n'.join(str(o) for o in raw_offers),
             restaurant.get('name', 'Unknown Restaurant'),
         )
         offers = parsed.get('offers') if isinstance(parsed, dict) else None
@@ -489,7 +496,7 @@ class CompetitorService:
             item_copy = dict(item)
             if item_copy['price']:
                 factor = rng.uniform(0.8, 1.25)
-                item_copy['price'] = round(item_copy['price'] * factor, 2)
+                item_copy['price'] = round(float(item_copy['price']) * factor, 2)
             menu.append(item_copy)
         if rng.random() > 0.5:
             menu.append({"item_name":"Goat Curry","category":"Curry","price":round(rng.uniform(15,20),2),"is_veg":False,"is_popular":False,"is_bestseller":False,"is_signature":True,"description":"Slow-cooked goat curry","spice_level":"Hot","image_url":None,"source":"demo"})

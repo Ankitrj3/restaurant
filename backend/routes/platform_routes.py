@@ -94,24 +94,278 @@ def list_platforms():
     })
 
 
+# ── Platform URL Endpoints ─────────────────────────────
+
+@platform_bp.route('/api/platforms/urls', methods=['GET'])
+def get_platform_urls():
+    """Get real external platform URLs (UberEats, DoorDash, Grubhub) for a restaurant.
+    
+    Query params:
+        restaurant (str): Restaurant name (default: client restaurant)
+    
+    Returns:
+        { restaurant, ubereats_url, doordash_url, grubhub_url }
+    """
+    restaurant = request.args.get('restaurant', Config.CLIENT_RESTAURANT_NAME)
+    try:
+        urls = platform_service.get_platform_urls(restaurant)
+        return jsonify({
+            'restaurant': restaurant,
+            **urls,
+        })
+    except Exception as e:
+        return jsonify({'restaurant': restaurant, 'error': str(e)}), 500
+
+
+@platform_bp.route('/api/platforms/urls/bulk', methods=['GET'])
+def get_bulk_platform_urls():
+    """Get platform URLs for multiple restaurants at once.
+    
+    Query params:
+        restaurants (str): Comma-separated restaurant names
+    
+    Returns:
+        { urls: { restaurant_name: { ubereats_url, doordash_url, grubhub_url, instore_url } } }
+    """
+    restaurants_param = request.args.get('restaurants', '')
+    if restaurants_param:
+        restaurant_names = [r.strip() for r in restaurants_param.split(',') if r.strip()]
+    else:
+        restaurant_names = platform_service.get_restaurant_names()
+
+    try:
+        urls = platform_service.get_bulk_platform_urls(restaurant_names)
+        return jsonify({'urls': urls})
+    except Exception as e:
+        return jsonify({'urls': {}, 'error': str(e)}), 500
+
+
+@platform_bp.route('/api/platforms/verification-links', methods=['GET'])
+def get_verification_links():
+    """Get ALL platform verification links for a restaurant — always location-anchored.
+
+    Returns links for in-store (Google Maps), UberEats, DoorDash, Grubhub.
+    All links are anchored to the configured restaurant's city/state from .env,
+    so they always show the correct US location regardless of the user's IP or physical location.
+
+    Query params:
+        restaurant (str): Restaurant name (default: client restaurant from .env)
+        address (str): Optional restaurant address override
+
+    Returns:
+        {
+            restaurant_name, restaurant_address, city_state,
+            location: { lat, lng },
+            verification_links: {
+                instore: { label, url, description },
+                ubereats: { label, url, description },
+                doordash: { label, url, description },
+                grubhub:  { label, url, description }
+            }
+        }
+    """
+    restaurant = request.args.get('restaurant', Config.CLIENT_RESTAURANT_NAME)
+    address = request.args.get('address')
+    try:
+        result = platform_service.get_all_verification_links(restaurant, address)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'restaurant_name': restaurant, 'error': str(e)}), 500
+
+
 # ── Platform Menu Endpoints ────────────────────────────
 
 @platform_bp.route('/api/platforms/menu', methods=['GET'])
 def get_platform_menu():
-    """Get menu for a restaurant on a specific platform."""
+    """Get menu for a restaurant on a specific platform.
+    
+    Response includes 'data_source_info' showing which websites were searched
+    and whether data came from live Gemini grounding or a fallback.
+    """
     restaurant = request.args.get('restaurant', Config.CLIENT_RESTAURANT_NAME)
     platform = request.args.get('platform', 'instore')
     try:
         menu = platform_service.get_platform_menu(restaurant, platform)
+
+        # Determine data source type and grounding URLs
+        source_types = list({item.get('source', 'unknown') for item in menu if isinstance(item, dict)})
+        is_live = any('grounded' in s for s in source_types)
+        is_fallback = any('fallback' in s for s in source_types)
+
+        # Collect any grounding URLs from the registry for this platform
+        from services.gemini_service import get_source_registry
+        registry = get_source_registry()
+        domain_map = {
+            'ubereats': 'ubereats.com',
+            'doordash': 'doordash.com',
+            'grubhub': 'grubhub.com',
+            'instore': None,
+        }
+        domain = domain_map.get(platform)
+        grounding_urls = []
+        seen = set()
+        for label, sources in registry.items():
+            for s in sources:
+                url = s.get('url', '')
+                if url not in seen and (not domain or domain in url):
+                    grounding_urls.append({'url': url, 'title': s.get('title', ''), 'call': label})
+                    seen.add(url)
+
+        data_source_info = {
+            'data_source': source_types[0] if len(source_types) == 1 else source_types,
+            'is_live_grounded_data': is_live,
+            'is_fallback_data': is_fallback,
+            'grounding_urls': grounding_urls,
+            'grounding_url_count': len(grounding_urls),
+            'note': (
+                'Data fetched live from the web via Gemini Google Search grounding.'
+                if is_live else
+                'Data is AI-estimated (Gemini fallback). Live grounding URLs not available — '
+                'check Gemini API key/rate limits.'
+            ),
+        }
+
         return jsonify({
             'restaurant': restaurant,
             'platform': platform,
             'platform_label': PLATFORM_LABELS.get(platform, platform),
             'items': menu,
             'total_items': len(menu),
+            'data_source_info': data_source_info,
         })
     except Exception as e:
         return jsonify({'restaurant': restaurant, 'platform': platform, 'items': [], 'error': str(e)})
+
+
+# ── Shared helper: attach source URL info to any comparison result ─────────────
+
+def _attach_source_urls(result, platform, client_name='', competitor_name=''):
+    """Inject data_source_info into a comparison result dict.
+
+    Looks up the Gemini grounding registry for URLs matching the platform domain
+    and the restaurant names, so the frontend can show clickable source links.
+    """
+    try:
+        from services.gemini_service import get_source_registry
+        registry = get_source_registry()
+
+        domain_map = {
+            'ubereats': 'ubereats.com',
+            'doordash': 'doordash.com',
+            'grubhub': 'grubhub.com',
+            'instore': None,
+        }
+        domain = domain_map.get(platform)
+
+        def _urls_for(name):
+            """Return grounding URLs that relate to this restaurant name."""
+            name_lower = name.lower()
+            urls = []
+            seen: set = set()
+            for label, sources in registry.items():
+                label_match = name_lower in label.lower()
+                for s in sources:
+                    url = s.get('url', '')
+                    if not url or url in seen:
+                        continue
+                    domain_match = (not domain) or (domain in url)
+                    if label_match or domain_match:
+                        urls.append({'url': url, 'title': s.get('title', '')})
+                        seen.add(url)
+            return urls
+
+        # Detect live data: check if the Gemini registry has ANY entries
+        # (meaning grounded API calls were made successfully), or if comparison
+        # items carry a 'source' field with 'grounded'/'live' in it.
+        registry_has_entries = len(registry) > 0
+
+        # Also check items for source field (may be present in raw menu results)
+        items = result.get('items', []) if isinstance(result, dict) else []
+        source_types = list({str(item.get('source', ''))
+                             for item in items if isinstance(item, dict) and item.get('source')})
+
+        has_grounded_source = any('grounded' in s or 'live' in s for s in source_types)
+
+        # The data is live if EITHER the registry has entries OR items have grounded source tags
+        is_live = registry_has_entries or has_grounded_source
+        is_fallback = not is_live
+
+        client_urls = _urls_for(client_name)
+        competitor_urls = _urls_for(competitor_name)
+        all_platform = [
+            {'url': s.get('url', ''), 'title': s.get('title', '')}
+            for sources in registry.values()
+            for s in sources
+            if domain and domain in s.get('url', '')
+        ]
+
+        # Build search queries list from registry
+        search_queries = []
+        for label, sources in registry.items():
+            for s in sources:
+                for q in s.get('search_queries', []):
+                    if q and q not in search_queries:
+                        search_queries.append(q)
+
+        data_source = 'google_search_grounding' if is_live else 'fallback_estimated'
+
+        result['data_source_info'] = {
+            'platform': platform,
+            'platform_label': PLATFORM_LABELS.get(platform, platform),
+            'is_live_grounded_data': is_live,
+            'is_fallback_data': is_fallback,
+            'data_source': data_source,
+            'search_queries': search_queries[:10],
+            'client_sources': {
+                'name': client_name,
+                'grounding_urls': client_urls,
+            },
+            'competitor_sources': {
+                'name': competitor_name,
+                'grounding_urls': competitor_urls,
+            },
+            'all_platform_urls': all_platform,
+            'registry_url': f'/api/data-sources/platform/{platform}',
+            'note': (
+                f'Prices fetched live from {PLATFORM_LABELS.get(platform, platform)} via Gemini Google Search grounding.'
+                if is_live else
+                f'Prices are AI-estimated. Gemini could not find this restaurant on '
+                f'{PLATFORM_LABELS.get(platform, platform)} — check Gemini API key/rate limits.'
+            ),
+        }
+    except Exception as e:
+        result['data_source_info'] = {'error': str(e), 'registry_url': '/api/data-sources'}
+    return result
+
+
+def _attach_platform_urls(result, platform, client_name='', competitor_name=''):
+    """Inject platform URLs into the comparison result's data_source_info."""
+    if 'data_source_info' not in result:
+        result['data_source_info'] = {}
+    
+    url_key = f"{platform}_url"
+    
+    # Get client URL
+    client_url = None
+    if client_name:
+        try:
+            urls = platform_service.get_platform_urls(client_name)
+            client_url = urls.get(url_key)
+        except Exception:
+            pass
+            
+    # Get competitor URL
+    competitor_url = None
+    if competitor_name:
+        try:
+            urls = platform_service.get_platform_urls(competitor_name)
+            competitor_url = urls.get(url_key)
+        except Exception:
+            pass
+            
+    result['data_source_info']['client_platform_url'] = client_url
+    result['data_source_info']['competitor_platform_url'] = competitor_url
+    return result
 
 
 # ── In-Store Comparison ────────────────────────────────
@@ -121,7 +375,17 @@ def compare_instore():
     """Compare Bawarchi in-store prices vs competitors."""
     competitor = request.args.get('competitor')
     try:
+        from services.competitor_service import competitor_service
+        client_name = competitor_service.client_restaurant.get('name', '')
         result = platform_service.compare_instore(competitor)
+        # Attach source URLs to each comparison object
+        if isinstance(result, list):
+            for r in result:
+                comp_name = r.get('competitor_name', competitor or '')
+                _attach_source_urls(r, 'instore', client_name, comp_name)
+        elif isinstance(result, dict):
+            comp_name = result.get('competitor_name', competitor or '')
+            _attach_source_urls(result, 'instore', client_name, comp_name)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e), 'items': []}), 500
@@ -136,7 +400,19 @@ def compare_platform(platform):
         return jsonify({'error': f'Unsupported platform: {platform}'}), 400
     competitor = request.args.get('competitor')
     try:
+        from services.competitor_service import competitor_service
+        client_name = competitor_service.client_restaurant.get('name', '')
         result = platform_service.compare_platform(platform, competitor)
+        # Attach source URLs and platform URLs to each comparison object
+        if isinstance(result, list):
+            for r in result:
+                comp_name = r.get('competitor_name', competitor or '')
+                _attach_source_urls(r, platform, client_name, comp_name)
+                _attach_platform_urls(r, platform, client_name, comp_name)
+        elif isinstance(result, dict):
+            comp_name = result.get('competitor_name', competitor or '')
+            _attach_source_urls(result, platform, client_name, comp_name)
+            _attach_platform_urls(result, platform, client_name, comp_name)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e), 'items': []}), 500
@@ -258,6 +534,172 @@ def update_config():
         Config.FUZZY_MATCH_THRESHOLD = float(data['fuzzy_threshold'])
 
     return jsonify({'status': 'ok', 'message': 'Configuration updated'})
+
+
+# ── Data Sources (Grounding URLs) ────────────────────────────────
+
+@platform_bp.route('/api/data-sources', methods=['GET'])
+def get_data_sources():
+    """Return all real web URLs that Gemini searched to populate menu/price data.
+    
+    This reveals exactly which website pages (UberEats, DoorDash, restaurant sites, etc.)
+    Gemini used as ground truth for pricing data.
+
+    Query params:
+        platform (str): Filter by platform keyword (ubereats, doordash, grubhub, instore)
+        flat (bool): If 'true', return a flat list instead of grouped by call
+    """
+    try:
+        from services.gemini_service import get_source_registry
+        registry = get_source_registry()
+
+        platform_filter = request.args.get('platform', '').lower()
+        flat_mode = request.args.get('flat', 'false').lower() == 'true'
+
+        # Also pull _sources from cached menu results
+        from services.cache_service import cache_service
+        cache_sources = _collect_sources_from_cache(platform_filter)
+
+        # Merge cache sources into registry
+        for label, sources in cache_sources.items():
+            if label not in registry:
+                registry[label] = []
+            for s in sources:
+                if s not in registry[label]:
+                    registry[label].append(s)
+
+        if platform_filter:
+            filtered = {}
+            for label, sources in registry.items():
+                if platform_filter in label.lower():
+                    filtered[label] = sources
+            # Also include sources whose URLs match the platform domain
+            domain_map = {
+                'ubereats': 'ubereats.com',
+                'doordash': 'doordash.com',
+                'grubhub': 'grubhub.com',
+                'instore': None,
+            }
+            domain = domain_map.get(platform_filter)
+            if domain:
+                for label, sources in registry.items():
+                    matching = [s for s in sources if domain in s.get('url', '')]
+                    if matching:
+                        key = f"{label} [{platform_filter}]"
+                        filtered.setdefault(key, []).extend(matching)
+            registry = filtered
+
+        if flat_mode:
+            flat = []
+            seen_urls = set()
+            for sources in registry.values():
+                for s in sources:
+                    if s.get('url') not in seen_urls:
+                        flat.append(s)
+                        seen_urls.add(s.get('url'))
+            return jsonify({
+                'total_sources': len(flat),
+                'platform_filter': platform_filter or 'all',
+                'sources': flat,
+            })
+
+        # Default: grouped
+        total = sum(len(v) for v in registry.values())
+        return jsonify({
+            'total_sources': total,
+            'platform_filter': platform_filter or 'all',
+            'grouped_sources': registry,
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'sources': []}), 500
+
+
+@platform_bp.route('/api/data-sources/platform/<platform>', methods=['GET'])
+def get_platform_data_sources(platform):
+    """Return all real web URLs used specifically for a given platform.
+    
+    Platform values: ubereats, doordash, grubhub, instore
+    """
+    domain_map = {
+        'ubereats': 'ubereats.com',
+        'doordash': 'doordash.com',
+        'grubhub': 'grubhub.com',
+        'instore': None,
+    }
+    if platform not in domain_map:
+        return jsonify({'error': f'Unknown platform: {platform}. Use: ubereats, doordash, grubhub, instore'}), 400
+
+    try:
+        from services.gemini_service import get_source_registry
+        registry = get_source_registry()
+        domain = domain_map.get(platform)
+
+        # Collect all sources that mention this platform's domain
+        matched = []
+        seen_urls = set()
+        for label, sources in registry.items():
+            for s in sources:
+                url = s.get('url', '')
+                if url in seen_urls:
+                    continue
+                if domain and domain in url:
+                    matched.append({**s, '_call_label': label})
+                    seen_urls.add(url)
+                elif not domain and platform in label.lower():
+                    matched.append({**s, '_call_label': label})
+                    seen_urls.add(url)
+
+        # Also pull from cached menu data
+        cache_sources = _collect_sources_from_cache(platform)
+        for label, sources in cache_sources.items():
+            for s in sources:
+                url = s.get('url', '')
+                if url not in seen_urls:
+                    matched.append({**s, '_call_label': label})
+                    seen_urls.add(url)
+
+        return jsonify({
+            'platform': platform,
+            'platform_label': PLATFORM_LABELS.get(platform, platform),
+            'domain': domain,
+            'total_sources': len(matched),
+            'sources': matched,
+            'note': 'These are the real web pages Gemini searched to get menu/price data for this platform.',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'sources': []}), 500
+
+
+def _collect_sources_from_cache(platform_filter=''):
+    """Scan the memory cache for any saved _sources fields from grounded calls.
+    
+    The cache service stores entries in _memory_cache as a flat dict with keys
+    formatted as 'category:key' (e.g., 'menu:ubereats_bawarchi').
+    """
+    result = {}
+    try:
+        from services.cache_service import cache_service
+        # _memory_cache is a flat dict: { "category:key": {"data": ..., "timestamp": ...} }
+        for cache_key, entry in cache_service._memory_cache.items():
+            data = entry.get('data') if isinstance(entry, dict) else None
+            if not data:
+                continue
+            sources = None
+            if isinstance(data, dict):
+                sources = data.get('_sources')
+            elif isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and item.get('_sources'):
+                        sources = item['_sources']
+                        break
+            if sources:
+                label = f"cache:{cache_key}"
+                if not platform_filter or platform_filter in cache_key:
+                    result[label] = sources
+    except Exception:
+        pass
+    return result
 
 
 # ── Export ─────────────────────────────────────────────

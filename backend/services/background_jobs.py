@@ -4,6 +4,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from services.competitor_service import competitor_service
 from services.cache_service import cache_service
+from config import Config
 
 class BackgroundJobManager:
     def __init__(self):
@@ -63,7 +64,8 @@ class BackgroundJobManager:
         print("[Scheduler] Running scheduled menu refresh...")
         try:
             # We can use the cache to find known restaurants and re-fetch them
-            cached_discovery = cache_service.get_latest('discovery', 20)
+            cache_key = f"20_{Config.CLIENT_LAT}_{Config.CLIENT_LNG}"
+            cached_discovery = cache_service.get_latest('discovery', cache_key)
             if cached_discovery and 'restaurants' in cached_discovery:
                 for r in cached_discovery['restaurants']:
                     # Re-fetch menu live (this will update the cache)

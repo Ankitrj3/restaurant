@@ -126,4 +126,16 @@ const API = {
     }
     return url;
   },
+  // ── Platform URLs ────────────────────────────────
+  async getPlatformUrls(restaurant) {
+    return this.get(`/api/platforms/urls?restaurant=${encodeURIComponent(restaurant)}`);
+  },
+  async getBulkPlatformUrls(restaurants) {
+    return this.get(`/api/platforms/urls/bulk?restaurants=${encodeURIComponent(restaurants.join(','))}`);
+  },
+  async getVerificationLinks(restaurant, address) {
+    let qs = `?restaurant=${encodeURIComponent(restaurant)}`;
+    if (address) qs += `&address=${encodeURIComponent(address)}`;
+    return this.get(`/api/platforms/verification-links${qs}`);
+  },
 };

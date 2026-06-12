@@ -387,6 +387,105 @@ class PlatformService:
             'restaurants': result,
         }
 
+    def get_platform_urls(self, restaurant_name):
+        """Get external platform URLs (UberEats, DoorDash, Grubhub, Google Maps) for a restaurant.
+        Returns dict with platform_name -> URL mappings.
+        All URLs are anchored to the configured restaurant address (Leander TX) not the user's IP."""
+        from urllib.parse import quote_plus
+        from config import Config
+        urls = {}
+        delivery_platforms = ['ubereats', 'doordash', 'grubhub']
+        for platform in delivery_platforms:
+            adapter = _get_adapter(platform)
+            if adapter and adapter.is_available() and hasattr(adapter, 'fetch_platform_url'):
+                try:
+                    url = adapter.fetch_platform_url(restaurant_name)
+                    urls[f'{platform}_url'] = url
+                except Exception as e:
+                    print(f"[PlatformService] Error fetching {platform} URL for {restaurant_name}: {e}")
+                    urls[f'{platform}_url'] = None
+            else:
+                urls[f'{platform}_url'] = None
+
+        # Always include in-store / Google Maps link anchored to configured lat/lng
+        lat = Config.CLIENT_LAT
+        lng = Config.CLIENT_LNG
+        address = Config.CLIENT_RESTAURANT_ADDRESS
+        # Use coordinates for precise pin, with restaurant name as query
+        maps_url = (
+            f"https://www.google.com/maps/search/{quote_plus(restaurant_name)}"
+            f"/@{lat},{lng},15z"
+        )
+        urls['instore_url'] = maps_url
+        urls['google_maps_url'] = maps_url
+        return urls
+
+    def get_bulk_platform_urls(self, restaurant_names):
+        """Get platform URLs for multiple restaurants at once.
+        Returns dict: {restaurant_name: {ubereats_url, doordash_url, grubhub_url, instore_url}}"""
+        result = {}
+        for rname in restaurant_names:
+            result[rname] = self.get_platform_urls(rname)
+        return result
+
+    def get_all_verification_links(self, restaurant_name, restaurant_address=None):
+        """Get ALL platform verification links for a restaurant — always location-anchored.
+        
+        Returns links for in-store (Google Maps), UberEats, DoorDash, Grubhub.
+        Fallback URLs include city/state to prevent wrong-location results.
+        """
+        from urllib.parse import quote_plus
+        from config import Config
+
+        if not restaurant_address:
+            # For client restaurant, use configured address; for competitors use name
+            restaurant_address = Config.CLIENT_RESTAURANT_ADDRESS
+
+        # Parse location context
+        parts = [p.strip() for p in restaurant_address.split(',') if p.strip()]
+        city_state = f"{parts[-3]} {parts[-2].split()[0]}" if len(parts) >= 3 else ""
+        zip_code = parts[-2].split()[-1] if len(parts) >= 2 and len(parts[-2].split()) >= 2 else ""
+
+        # Build all platform links
+        urls = self.get_platform_urls(restaurant_name)
+
+        # Build Google Maps URL anchored to configured coordinates
+        lat = Config.CLIENT_LAT
+        lng = Config.CLIENT_LNG
+        maps_url = (
+            f"https://www.google.com/maps/search/{quote_plus(restaurant_name)}"
+            f"/@{lat},{lng},15z"
+        )
+
+        return {
+            'restaurant_name': restaurant_name,
+            'restaurant_address': restaurant_address,
+            'city_state': city_state,
+            'location': {'lat': lat, 'lng': lng},
+            'verification_links': {
+                'instore': {
+                    'label': 'In-Store / Google Maps',
+                    'url': maps_url,
+                    'description': f'View restaurant location near {city_state}',
+                },
+                'ubereats': {
+                    'label': 'Uber Eats',
+                    'url': urls.get('ubereats_url'),
+                    'description': f'Check prices on Uber Eats near {city_state}',
+                },
+                'doordash': {
+                    'label': 'DoorDash',
+                    'url': urls.get('doordash_url'),
+                    'description': f'Check prices on DoorDash near {city_state}',
+                },
+                'grubhub': {
+                    'label': 'Grubhub',
+                    'url': urls.get('grubhub_url'),
+                    'description': f'Check prices on Grubhub near {city_state}',
+                },
+            },
+        }
+
     # ── Private helpers ────────────────────────────────
 
     def _build_price_comparison(self, client_name, client_menu, comp_name, comp_menu, platform):

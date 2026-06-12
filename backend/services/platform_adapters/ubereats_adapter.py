@@ -31,9 +31,13 @@ class UberEatsAdapter(BasePlatformAdapter):
         if cached_menu: return cached_menu
 
         # Priority 1: Gemini with Google Search Grounding (REAL data)
-        live_menu = self._fetch_grounded_menu(restaurant_name)
+        live_menu, platform_url = self._fetch_grounded_menu(restaurant_name)
         if live_menu:
             cache_service.set('menu', cache_key, live_menu)
+            # Cache the platform URL if found
+            if platform_url:
+                url_cache_key = f"platform_url_{self.PLATFORM_NAME}_{restaurant_name.lower().strip()}"
+                cache_service.set('ai_response', url_cache_key, {'url': platform_url})
             return live_menu
 
         # Priority 2/3: Stale Cache Fallback
@@ -73,11 +77,12 @@ class UberEatsAdapter(BasePlatformAdapter):
         return self._generate_fallback_fees(restaurant_name)
 
     def _fetch_grounded_menu(self, restaurant_name):
-        """Use Gemini with Google Search grounding to find REAL UberEats menu prices."""
+        """Use Gemini with Google Search grounding to find REAL UberEats menu prices.
+        Returns (menu_items, platform_url) tuple."""
         try:
             from services.gemini_service import gemini_service
             if not gemini_service.is_available():
-                return None
+                return None, None
 
             address = Config.CLIENT_RESTAURANT_ADDRESS
             result = gemini_service.fetch_restaurant_menu_from_platform(
@@ -87,14 +92,49 @@ class UberEatsAdapter(BasePlatformAdapter):
             if result and isinstance(result, dict):
                 if result.get('not_found'):
                     print(f"[UberEats] Restaurant '{restaurant_name}' not found on UberEats via search")
-                    return None
+                    return None, None
+                platform_url = result.get('platform_url')
                 items = result.get('items', [])
                 if items:
                     print(f"[UberEats] Found {len(items)} REAL items for '{restaurant_name}' via Google Search")
-                    return [self._normalize_item(item, source='ubereats_grounded') for item in items]
+                    if platform_url:
+                        print(f"[UberEats] Platform URL: {platform_url}")
+                    return [self._normalize_item(item, source='ubereats_grounded') for item in items], platform_url
         except Exception as e:
             print(f"[UberEatsAdapter] Grounded search error: {e}")
-        return None
+        return None, None
+
+    def fetch_platform_url(self, restaurant_name):
+        """Get the real UberEats page URL for this restaurant."""
+        url_cache_key = f"platform_url_{self.PLATFORM_NAME}_{restaurant_name.lower().strip()}"
+
+        # 1. Check cache
+        cached = cache_service.get('ai_response', url_cache_key)
+        if cached and isinstance(cached, dict) and cached.get('url'):
+            return cached['url']
+
+        # 2. Ask Gemini for the URL
+        try:
+            from services.gemini_service import gemini_service
+            if gemini_service.is_available():
+                result = gemini_service.search_restaurant_platform_url(
+                    restaurant_name, Config.CLIENT_RESTAURANT_ADDRESS, 'ubereats'
+                )
+                if result and isinstance(result, dict) and result.get('platform_url'):
+                    url = result['platform_url']
+                    cache_service.set('ai_response', url_cache_key, {'url': url})
+                    print(f"[UberEats] Found platform URL for '{restaurant_name}': {url}")
+                    return url
+        except Exception as e:
+            print(f"[UberEatsAdapter] URL search error: {e}")
+
+        # 3. Fallback: construct a location-anchored search URL
+        from urllib.parse import quote_plus
+        # Include city/state in search query to anchor to the right location
+        parts = [p.strip() for p in Config.CLIENT_RESTAURANT_ADDRESS.split(',') if p.strip()]
+        city_state = f"{parts[-3]} {parts[-2].split()[0]}" if len(parts) >= 3 else ""
+        search_q = quote_plus(f"{restaurant_name} {city_state}".strip())
+        return f"https://www.ubereats.com/search?q={search_q}"
 
     def _fetch_grounded_fees(self, restaurant_name):
         """Use Gemini with Google Search grounding to find REAL UberEats delivery fees."""

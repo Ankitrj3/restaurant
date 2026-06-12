@@ -158,6 +158,92 @@ const Comparison = {
       html += `</ul></div>`;
     }
 
+    // ── Data Sources panel ──────────────────────────────────
+    const ds = data.data_sources || {};
+    const clientDs = ds.client || {};
+    const compDs = ds.competitor || {};
+
+    const renderSourceCard = (info, label) => {
+      if (!info || !info.name) return '';
+      const srcBadge = info.is_live_data
+        ? `<span style="background:#1f9d64;color:#fff;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700;">LIVE</span>`
+        : `<span style="background:#7c746c;color:#fff;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700;">ESTIMATED</span>`;
+
+      const typeList = (info.source_types || []).join(', ') || 'unknown';
+
+      let linksHtml = '';
+      if (info.website_url) {
+        linksHtml += `<div style="margin-top:6px;">
+          <i class="fa-solid fa-globe" style="color:var(--accent-blue);margin-right:4px;font-size:0.8rem;" aria-hidden="true"></i>
+          <a href="${info.website_url}" target="_blank" rel="noopener"
+             style="color:var(--accent-blue);font-size:0.82rem;word-break:break-all;"
+             title="Restaurant website used for menu scraping">${info.website_url}</a>
+        </div>`;
+      }
+
+      if ((info.grounding_urls || []).length > 0) {
+        linksHtml += `<div style="margin-top:8px;font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">
+          <i class="fa-brands fa-google" aria-hidden="true"></i> Gemini searched these pages:
+        </div>`;
+        for (const src of info.grounding_urls.slice(0, 5)) {
+          const dispTitle = src.title || src.url;
+          linksHtml += `<div style="margin:3px 0 3px 12px;display:flex;align-items:flex-start;gap:6px;">
+            <i class="fa-solid fa-link" style="color:var(--accent-gold);font-size:0.72rem;margin-top:3px;flex-shrink:0;" aria-hidden="true"></i>
+            <a href="${src.url}" target="_blank" rel="noopener"
+               style="color:var(--accent-gold);font-size:0.78rem;word-break:break-all;"
+               title="${src.url}">${dispTitle.length > 70 ? dispTitle.slice(0, 70) + '…' : dispTitle}</a>
+          </div>`;
+        }
+      }
+
+      if (!info.website_url && (info.grounding_urls || []).length === 0) {
+        linksHtml = `<div style="margin-top:6px;font-size:0.8rem;color:var(--text-muted);">
+          <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+          No source URLs available — data generated from AI estimates.
+          <a href="/api/data-sources" target="_blank" style="color:var(--accent-blue);margin-left:4px;">Check /api/data-sources</a>
+        </div>`;
+      }
+
+      return `
+        <div style="background:var(--card-bg,#1e1a16);border:1px solid rgba(255,255,255,0.08);
+                    border-radius:10px;padding:14px 16px;flex:1;min-width:220px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:0.82rem;font-weight:700;color:var(--text-secondary);">${label}</span>
+            ${srcBadge}
+          </div>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">
+            Source: <code style="font-size:0.75rem;">${typeList}</code>
+          </div>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:2px;">${info.note || ''}</div>
+          ${linksHtml}
+        </div>`;
+    };
+
+    const clientCard = renderSourceCard(clientDs, clientName);
+    const compCard = renderSourceCard(compDs, compName);
+
+    if (clientCard || compCard) {
+      html += `
+        <details class="comp-section" style="cursor:pointer;" id="data-sources-details">
+          <summary style="list-style:none;display:flex;align-items:center;gap:8px;
+                          padding:0 0 6px;font-size:0.95rem;font-weight:600;color:var(--text-secondary);">
+            <i class="fa-solid fa-database icon-inline" aria-hidden="true"></i>
+            Data Sources
+            <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:auto;">
+              Click to verify prices ↗
+            </span>
+          </summary>
+          <p style="font-size:0.78rem;color:var(--text-muted);margin:4px 0 12px;">
+            These are the URLs Gemini searched to populate the comparison data.
+            Click any link to verify the prices directly on the source page.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:14px;">
+            ${clientCard}
+            ${compCard}
+          </div>
+        </details>`;
+    }
+
     panel.innerHTML = html;
 
     // Initialize charts after DOM update
